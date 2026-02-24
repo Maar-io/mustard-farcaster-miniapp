@@ -3,14 +3,14 @@
     "version": "1",
     "name": "Mustard",
     "description": "Demo minting with backend notifications",
-    "iconUrl": "http://localhost:5174/nft.svg",
+    "iconUrl": "http://localhost:5174/icon.svg",
     "homeUrl": "http://localhost:5174/",
-    "imageUrl": "http://localhost:5174/nft.svg",
+    "imageUrl": "http://localhost:5174/preview.svg",
     "buttonTitle": "Launch Mustard",
-    "splashImageUrl": "http://localhost:5174/nft.svg",
+    "splashImageUrl": "http://localhost:5174/preview.svg",
     "splashBackgroundColor": "#fbbf24",
     "webhookUrl": "http://localhost:3300/webhook",
     "primaryCategory": "entertainment",
-    "tags": ["nft", "minting", "backend", "demo"]
+    "tags": ["nft", "minting", "notifications", "demo", "backend"]
   }
 }
