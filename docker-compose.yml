@@ -17,7 +17,7 @@ services:
     environment:
       - PORT=3300
       # host.docker.internal lets containers reach services on the host machine
-      - MEYMAR_URL=http://host.docker.internal:3200
+      - FARCASTER_HOST_URL=http://host.docker.internal:3200
       - FRONTEND_URL=http://localhost:5174
     # Required for host.docker.internal on macOS/Windows (built-in)
     # For Linux, uncomment:

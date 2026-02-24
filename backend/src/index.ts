@@ -6,7 +6,7 @@ const app = new Hono()
 app.use('*', cors())
 
 // Use env vars for Docker support, fallback to localhost for local dev
-const MEYMAR_URL = process.env.MEYMAR_URL || 'http://localhost:3200'
+const FARCASTER_HOST_URL = process.env.FARCASTER_HOST_URL || 'http://localhost:3200'
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5174'
 const PORT = Number(process.env.PORT || 3300)
 
@@ -26,7 +26,7 @@ const scheduledNotifications: Array<{
   }
 }> = []
 
-// Webhook endpoint - receives miniapp_added events from sandbox (via meymar)
+// Webhook endpoint - receives miniapp_added events from sandbox (via host notify server)
 app.post('/webhook', async (c) => {
   const body = await c.req.json() as {
     event?: string
@@ -75,7 +75,7 @@ app.post('/api/mint', async (c) => {
   const scheduledDate = new Date(scheduledFor).toLocaleTimeString()
   console.log(`  [scheduler] notification "${notificationId}" scheduled for ${scheduledDate} (in 60s)`)
   console.log(`  [scheduler] queue size: ${scheduledNotifications.length}`)
-  console.log(`  [scheduler] will POST to ${MEYMAR_URL}/api/miniapps-notifications`)
+  console.log(`  [scheduler] will POST to ${FARCASTER_HOST_URL}/api/miniapps-notifications`)
 
   return c.json({ success: true, scheduledFor })
 })
@@ -100,11 +100,11 @@ setInterval(async () => {
 
   for (const item of due) {
     const payload = JSON.stringify(item.notification)
-    console.log(`  [scheduler] sending to ${MEYMAR_URL}/api/miniapps-notifications`)
+    console.log(`  [scheduler] sending to ${FARCASTER_HOST_URL}/api/miniapps-notifications`)
     console.log(`  [scheduler] payload: ${payload}`)
 
     try {
-      const response = await fetch(`${MEYMAR_URL}/api/miniapps-notifications`, {
+      const response = await fetch(`${FARCASTER_HOST_URL}/api/miniapps-notifications`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: payload,
@@ -113,7 +113,7 @@ setInterval(async () => {
       const responseBody = await response.text()
       if (response.ok) {
         console.log(`  [scheduler] SUCCESS sent notification: ${item.id}`)
-        console.log(`  [scheduler] meymar response: ${responseBody}`)
+        console.log(`  [scheduler] FARCASTER_HOST response: ${responseBody}`)
       } else {
         console.error(`  [scheduler] FAILED to send: HTTP ${response.status} - ${responseBody}`)
       }
@@ -139,6 +139,6 @@ serve({ fetch: app.fetch, port: PORT }, (info) => {
   console.log(`  Mint:       POST http://localhost:${info.port}/api/mint`)
   console.log(`  Health:     GET  http://localhost:${info.port}/health`)
   console.log('')
-  console.log(`  Sends notifications to meymar at ${MEYMAR_URL}`)
+  console.log(`  Sends notifications to FARCASTER_HOST at ${FARCASTER_HOST_URL}`)
   console.log('')
 })

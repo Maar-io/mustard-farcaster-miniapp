@@ -10,7 +10,7 @@ export default defineConfig({
       // Suppress noisy warnings from dependencies
       onLog(level, log, handler) {
         // Suppress PURE annotation warnings from ox/viem dependencies
-        if (log.message && log.message.includes('PURE')) {
+        if (log.message?.includes('PURE')) {
           return;
         }
         handler(level, log);

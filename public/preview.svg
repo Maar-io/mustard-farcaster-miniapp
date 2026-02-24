@@ -1,0 +1,32 @@
+<svg width="1200" height="800" viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background gradient - mustard colors -->
+  <defs>
+    <linearGradient id="mustard-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#fbbf24;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#f59e0b;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#d97706;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="800" fill="url(#mustard-gradient)"/>
+
+  <!-- Decorative triangles -->
+  <polygon points="120,60 180,180 60,180" fill="white" opacity="0.15"/>
+  <polygon points="1050,660 1100,760 1000,760" fill="white" opacity="0.12"/>
+  <polygon points="950,100 1020,50 1020,150" fill="white" opacity="0.1"/>
+  <polygon points="200,700 280,740 180,780" fill="#fbbf24" opacity="0.2"/>
+  <polygon points="850,250 920,350 780,350" fill="white" opacity="0.08"/>
+  <polygon points="100,440 160,530 40,530" fill="#f59e0b" opacity="0.18"/>
+  <polygon points="1100,190 1150,280 1050,280" fill="white" opacity="0.1"/>
+  <polygon points="300,130 340,200 260,200" fill="white" opacity="0.12"/>
+
+  <!-- Main title -->
+  <text x="600" y="380" font-family="Inter, system-ui, Arial, sans-serif" font-size="130" font-weight="bold" fill="white" text-anchor="middle" opacity="0.98">
+    Mustard
+  </text>
+
+  <!-- Subtitle -->
+  <text x="600" y="480" font-family="Inter, system-ui, Arial, sans-serif" font-size="52" fill="white" text-anchor="middle" opacity="0.85">
+    Minting with Backend Notifications
+  </text>
+</svg>
