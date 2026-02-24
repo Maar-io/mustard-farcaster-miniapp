@@ -1,0 +1,16 @@
+{
+  "miniapp": {
+    "version": "1",
+    "name": "Mustard",
+    "description": "Demo minting with backend notifications",
+    "iconUrl": "http://localhost:5174/nft.svg",
+    "homeUrl": "http://localhost:5174/",
+    "imageUrl": "http://localhost:5174/nft.svg",
+    "buttonTitle": "Launch Mustard",
+    "splashImageUrl": "http://localhost:5174/nft.svg",
+    "splashBackgroundColor": "#fbbf24",
+    "webhookUrl": "http://localhost:3300/webhook",
+    "primaryCategory": "entertainment",
+    "tags": ["nft", "minting", "backend", "demo"]
+  }
+}

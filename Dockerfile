@@ -8,6 +8,9 @@ RUN npm install --legacy-peer-deps
 
 COPY index.html vite.config.ts tsconfig.json tsconfig.node.json biome.json ./
 COPY src ./src
+
+# Copy public directory if it exists and has content, otherwise create empty one
+# Note: An empty public/ directory must exist in source for COPY to succeed
 COPY public ./public
 
 # Skip tsc in Docker (vite handles TS via esbuild), avoids type-check failures
