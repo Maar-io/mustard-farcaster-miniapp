@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useConnection, useConnect, useConnectors, useDisconnect, useSignMessage } from "wagmi";
 import { MintGallery } from "./MintGallery";
 import { NotificationSection } from "./NotificationSection";
+import { ContextSection } from "./ContextSection";
 
 const MUSTARD_BACKEND_URL = "http://localhost:3300";
 
@@ -37,17 +38,28 @@ function ConnectMenu() {
   const { disconnect } = useDisconnect();
   const connectors = useConnectors();
   const [starPoints, setStarPoints] = useState<number | null>(null);
+  const [username, setUsername] = useState<string>('');
+  const [pfpUrl, setPfpUrl] = useState<string>('');
 
   // Get the Startale connector
   const startaleConnector = connectors.find(c => c.name.toLowerCase() === 'startale');
 
-  // Read starPoints from context (async because of Comlink)
+  // Read context from sdk (async because of Comlink)
   useEffect(() => {
     (async () => {
       try {
-        const context = await sdk.context as { starPoints?: number };
-        if (context?.starPoints !== undefined) {
-          setStarPoints(context.starPoints);
+        const context = await sdk.context as {
+          startale?: { starPoints?: number };
+          user?: { username?: string; pfpUrl?: string };
+        };
+        if (context?.startale?.starPoints !== undefined) {
+          setStarPoints(context.startale.starPoints);
+        }
+        if (context?.user?.username) {
+          setUsername(context.user.username);
+        }
+        if (context?.user?.pfpUrl) {
+          setPfpUrl(context.user.pfpUrl);
         }
       } catch (e) {
         console.error('Failed to read context:', e);
@@ -75,15 +87,13 @@ function ConnectMenu() {
           Disconnect Wallet
         </button>
 
-        <SectionDivider title="User Info" />
-        <div style={{ marginBottom: '8px', fontWeight: '500' }}>Connected account:</div>
+        <SectionDivider title="Wallet Info" />
+        <div style={{ marginBottom: '8px', fontWeight: '500' }}>Connected smart account:</div>
         <div style={{ wordBreak: 'break-all', marginBottom: '12px', fontSize: '11px' }}>{address}</div>
         <div style={{ marginBottom: '4px' }}>Chain: {chain?.name}</div>
-        {starPoints !== null && (
-          <div>
-            ⭐ User star points: {starPoints}
-          </div>
-        )}
+
+        <SectionDivider title="Context" />
+        <ContextSection starPoints={starPoints} username={username} pfpUrl={pfpUrl} />
 
         <SectionDivider title="Minting" />
         {address && <MintGalleryWithNotifications address={address} />}
