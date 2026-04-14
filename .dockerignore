@@ -1,9 +1,0 @@
-node_modules
-dist
-backend/node_modules
-backend/dist
-.git
-.vercel
-*.log
-.DS_Store
-.env.local

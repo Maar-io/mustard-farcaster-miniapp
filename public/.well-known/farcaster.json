@@ -9,7 +9,7 @@
     "buttonTitle": "Launch Mustard",
     "splashImageUrl": "http://localhost:5174/preview.svg",
     "splashBackgroundColor": "#fbbf24",
-    "webhookUrl": "http://localhost:3300/webhook",
+    "webhookUrl": "http://localhost:5174/api/webhook",
     "primaryCategory": "entertainment",
     "tags": ["nft", "minting", "notifications", "demo", "backend"]
   }

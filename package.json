@@ -2,21 +2,18 @@
   "name": "mustard",
   "private": true,
   "version": "0.0.0",
-  "type": "module",
   "scripts": {
-    "dev": "vite --port 5174",
-    "dev:backend": "cd backend && npm run dev",
-    "build": "tsc && vite build",
-    "lint": "biome check src",
-    "preview": "vite preview",
-    "docker:up": "docker compose up --build",
-    "docker:down": "docker compose down"
+    "dev": "next dev --port 5174",
+    "build": "next build",
+    "start": "next start",
+    "lint": "biome check app components lib"
   },
   "dependencies": {
     "@farcaster/miniapp-sdk": "latest",
     "@farcaster/miniapp-wagmi-connector": "latest",
     "@startale/app-sdk": "^1.1.0",
     "@tanstack/react-query": "5.45.1",
+    "next": "^15.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "viem": "latest",
@@ -24,11 +21,10 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^1.8.0",
+    "@netlify/plugin-nextjs": "^5.0.0",
+    "@types/node": "^20",
     "@types/react": "^18.3.1",
     "@types/react-dom": "^18.3.0",
-    "@vitejs/plugin-react": "^4.2.1",
-    "@wagmi/cli": "latest",
-    "typescript": "^5.4.5",
-    "vite": "^5.2.11"
+    "typescript": "^5.4.5"
   }
 }

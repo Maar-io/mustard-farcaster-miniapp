@@ -9,5 +9,10 @@
   },
   "organizeImports": {
     "enabled": true
-  }
+  },
+  "overrides": [
+    {
+      "include": ["app/**", "components/**", "lib/**"]
+    }
+  ]
 }
