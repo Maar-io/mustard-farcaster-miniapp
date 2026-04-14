@@ -1,6 +1,0 @@
-{
-  "/api/notification-status/route": "app/api/notification-status/route.js",
-  "/api/webhook/route": "app/api/webhook/route.js",
-  "/api/test-notification/route": "app/api/test-notification/route.js",
-  "/page": "app/page.js"
-}
