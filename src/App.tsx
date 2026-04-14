@@ -99,11 +99,14 @@ function ConnectMenu() {
         {address && <MintGalleryWithNotifications address={address} />}
 
         <SectionDivider title="Notifications" />
-        <NotificationSection
-          appName="Mustard"
-          storageKey="mustard-notification-details"
-          accentColor="#92400e"
-        />
+        {address && (
+          <NotificationSection
+            appName="Mustard"
+            accentColor="#92400e"
+            backendUrl={MUSTARD_BACKEND_URL}
+            userAddress={address}
+          />
+        )}
 
         <SectionDivider title="Message Signing" />
         <SignButton />
@@ -155,48 +158,19 @@ function ConnectMenu() {
 
 function MintGalleryWithNotifications({ address }: { address: `0x${string}` }) {
   const handleMintSuccess = useCallback(() => {
-    // Read latest notification token from localStorage
-    let details: { url: string; token: string } | null = null;
-    try {
-      const saved = localStorage.getItem('mustard-notification-details');
-      if (saved) {
-        details = JSON.parse(saved) as { url: string; token: string };
-      }
-    } catch { /* ignore */ }
-
-    const now = Date.now();
-    console.log('[mustard] mint success, notifDetails:', details ? `token=${details.token.slice(0, 16)}...` : 'null');
-    if (details) {
-      // Immediate notification: NFT minted
-      fetch(details.url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          notificationId: `mustard-minted-${now}`,
-          title: 'Mustard',
-          body: 'New Mustard NFT was minted!',
-          targetUrl: window.location.href,
-          tokens: [details.token],
-        }),
-      }).catch((e) => console.error('[mustard] Failed to send mint notification:', e));
-
-      // Schedule "mint again" notification for 60s later via backend
-      console.log(`[mustard] calling ${MUSTARD_BACKEND_URL}/api/mint with token`);
-      fetch(`${MUSTARD_BACKEND_URL}/api/mint`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: details.token }),
+    console.log(`[mustard] mint success, notifying backend for address ${address}`);
+    fetch(`${MUSTARD_BACKEND_URL}/api/mint`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userAddress: address }),
+    })
+      .then((res) => {
+        console.log(`[mustard] /api/mint response: ${res.status}`);
+        return res.json();
       })
-        .then((res) => {
-          console.log(`[mustard] /api/mint response: ${res.status}`);
-          return res.json();
-        })
-        .then((data) => console.log('[mustard] /api/mint result:', data))
-        .catch((e) => console.error('[mustard] Failed to schedule notification:', e));
-    } else {
-      console.warn('[mustard] No notification details - enable notifications first!');
-    }
-  }, []);
+      .then((data) => console.log('[mustard] /api/mint result:', data))
+      .catch((e) => console.error('[mustard] Failed to notify backend:', e));
+  }, [address]);
 
   return (
     <MintGallery
