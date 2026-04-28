@@ -1,11 +1,12 @@
 import { sdk } from "@farcaster/miniapp-sdk";
 import { useCallback, useEffect, useState } from "react";
 import { useConnection, useConnect, useConnectors, useDisconnect, useSignMessage } from "wagmi";
+import { ContextSection } from "./ContextSection";
 import { MintGallery } from "./MintGallery";
 import { NotificationSection } from "./NotificationSection";
-import { ContextSection } from "./ContextSection";
 
 const MUSTARD_BACKEND_URL = "http://localhost:3300";
+const MUSTARD_LOG_PREFIX = "[MUSTARD][mustard]";
 
 function SectionDivider({ title }: { title: string }) {
   return (
@@ -62,7 +63,7 @@ function ConnectMenu() {
           setPfpUrl(context.user.pfpUrl);
         }
       } catch (e) {
-        console.error('Failed to read context:', e);
+        console.error(`${MUSTARD_LOG_PREFIX} Failed to read context:`, e);
       }
     })();
   }, []);
@@ -81,7 +82,7 @@ function ConnectMenu() {
             border: 'none',
             borderRadius: '4px',
             cursor: 'pointer',
-            fontSize: '14px'
+            fontSize: '14px',
           }}
         >
           Disconnect Wallet
@@ -136,7 +137,7 @@ function ConnectMenu() {
             cursor: 'pointer',
             fontSize: '14px',
             fontWeight: '500',
-            marginBottom: '12px'
+            marginBottom: '12px',
           }}
         >
           {status === "connecting" ? "Connecting..." : "Connect with Startale"}
@@ -158,27 +159,21 @@ function ConnectMenu() {
 
 function MintGalleryWithNotifications({ address }: { address: `0x${string}` }) {
   const handleMintSuccess = useCallback(() => {
-    console.log(`[mustard] mint success, notifying backend for address ${address}`);
+    console.log(`${MUSTARD_LOG_PREFIX} mint success, notifying backend for address ${address}`);
     fetch(`${MUSTARD_BACKEND_URL}/api/mint`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ userAddress: address }),
     })
       .then((res) => {
-        console.log(`[mustard] /api/mint response: ${res.status}`);
+        console.log(`${MUSTARD_LOG_PREFIX} /api/mint response: ${res.status}`);
         return res.json();
       })
-      .then((data) => console.log('[mustard] /api/mint result:', data))
-      .catch((e) => console.error('[mustard] Failed to notify backend:', e));
+      .then((data) => console.log(`${MUSTARD_LOG_PREFIX} /api/mint result:`, data))
+      .catch((e) => console.error(`${MUSTARD_LOG_PREFIX} Failed to notify backend:`, e));
   }, [address]);
 
-  return (
-    <MintGallery
-      address={address}
-      storagePrefix="mustard"
-      onMintSuccess={handleMintSuccess}
-    />
-  );
+  return <MintGallery address={address} storagePrefix="mustard" onMintSuccess={handleMintSuccess} />;
 }
 
 function SignButton() {
@@ -190,15 +185,17 @@ function SignButton() {
         {isPending ? "Signing..." : "Sign message"}
       </button>
       {data && (
-        <div style={{ marginTop: '12px' }}>
-          <div style={{ marginBottom: '8px', fontWeight: '500', fontSize: '14px' }}>Signature</div>
-          <div style={{ wordBreak: 'break-all', fontSize: '11px', fontFamily: 'monospace', lineHeight: '1.4' }}>{data}</div>
+        <div style={{ marginTop: "12px" }}>
+          <div style={{ marginBottom: "8px", fontWeight: "500", fontSize: "14px" }}>Signature</div>
+          <div style={{ wordBreak: "break-all", fontSize: "11px", fontFamily: "monospace", lineHeight: "1.4" }}>
+            {data}
+          </div>
         </div>
       )}
       {error && (
-        <div style={{ marginTop: '12px' }}>
-          <div style={{ marginBottom: '8px', fontWeight: '500', fontSize: '14px' }}>Error</div>
-          <div style={{ color: 'red', fontSize: '12px' }}>{error.message}</div>
+        <div style={{ marginTop: "12px" }}>
+          <div style={{ marginBottom: "8px", fontWeight: "500", fontSize: "14px" }}>Error</div>
+          <div style={{ color: "red", fontSize: "12px" }}>{error.message}</div>
         </div>
       )}
     </div>
