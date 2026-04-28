@@ -27,7 +27,19 @@ const scheduledNotifications: Array<{
   }
 }> = []
 
-const tokenSuffix = (token: string) => token.slice(-8)
+const testNotificationBodies = [
+  'Chris just minted a banana',
+  'Marc wanted to mute me',
+  'J did not review this',
+  'Alan wants to move to Bali',
+  'Ayumi does not like my design',
+  'Saša did not like new Remarkable',
+  'Brett is going to the gym',
+]
+
+let nextTestNotificationBodyIndex = 0
+
+const tokenPreview = (token: string) => token.slice(0, 8)
 
 const normalizeUserAddress = (userAddress: string) => userAddress.toLowerCase()
 
@@ -35,7 +47,7 @@ const logTokenStore = (label: string) => {
   const entries = Array.from(tokensByAddress.entries()).map(([address, details]) => ({
     address,
     url: details.url,
-    tokenSuffix: tokenSuffix(details.token),
+    tokenPreview: tokenPreview(details.token),
   }))
   console.log(`${LOG_PREFIX} [store] ${label}: count=${entries.length}`, entries)
 }
@@ -70,7 +82,7 @@ app.post('/webhook', async (c) => {
 
   if ((body.event === 'miniapp_added' || body.event === 'notifications_enabled') && body.notificationDetails && normalizedUserAddress) {
     tokensByAddress.set(normalizedUserAddress, body.notificationDetails)
-    console.log(`${LOG_PREFIX} [webhook] stored token for address ${normalizedUserAddress}: ...${tokenSuffix(body.notificationDetails.token)}`)
+    console.log(`${LOG_PREFIX} [webhook] stored token for address ${normalizedUserAddress}: ${tokenPreview(body.notificationDetails.token)}...`)
     console.log(`${LOG_PREFIX} [webhook] notification URL: ${body.notificationDetails.url}`)
     console.log(`${LOG_PREFIX} [webhook] total addresses stored: ${tokensByAddress.size}`)
     logTokenStore(`after ${body.event}`)
@@ -124,7 +136,7 @@ app.post('/api/mint', async (c) => {
 
   // Schedule "mint again" notification for 60 seconds later
   const notificationId = `mustardready-${now}`
-  const scheduledFor = now + 60_000
+  const scheduledFor = now + 20_000
 
   scheduledNotifications.push({
     id: notificationId,
@@ -163,10 +175,13 @@ app.post('/api/test-notification', async (c) => {
   }
 
   try {
+    const notificationBody = testNotificationBodies[nextTestNotificationBodyIndex]
+    nextTestNotificationBodyIndex = (nextTestNotificationBodyIndex + 1) % testNotificationBodies.length
+
     const payload = {
       notificationId: `mustard-test-${Date.now()}`,
       title: 'Mustard',
-      body: 'This is a test notification',
+      body: notificationBody,
       targetUrl: FRONTEND_URL,
       tokens: [details.token],
     }
@@ -193,7 +208,7 @@ app.get('/api/notification-status', (c) => {
   if (enabled) {
     const details = tokensByAddress.get(normalizedUserAddress)
     if (details) {
-      console.log(`${LOG_PREFIX} [status] token suffix for ${normalizedUserAddress}: ...${tokenSuffix(details.token)}`)
+      console.log(`${LOG_PREFIX} [status] token preview for ${normalizedUserAddress}: ${tokenPreview(details.token)}...`)
       console.log(`${LOG_PREFIX} [status] notification URL for ${normalizedUserAddress}: ${details.url}`)
     }
   } else {

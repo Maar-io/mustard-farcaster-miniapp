@@ -17,7 +17,7 @@ export function NotificationSection({ appName, accentColor, backendUrl, userAddr
   const prefix = appName.toLowerCase();
   const logPrefix = `[MUSTARD][${prefix}]`;
 
-  const tokenSuffix = (token: string) => token.slice(-8);
+  const tokenPreview = (token: string) => token.slice(0, 8);
 
   const logEvent = useCallback((event: string, detail: string = '') => {
     const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
@@ -30,7 +30,7 @@ export function NotificationSection({ appName, accentColor, backendUrl, userAddr
         userAddress,
         backendUrl,
         sendUrl: notificationDetails.url,
-        tokenSuffix: tokenSuffix(notificationDetails.token),
+        tokenPreview: tokenPreview(notificationDetails.token),
       });
       const res = await fetch(`${backendUrl}/webhook`, {
         method: 'POST',
@@ -94,7 +94,7 @@ export function NotificationSection({ appName, accentColor, backendUrl, userAddr
       logEvent(
         'miniAppAdded',
         event.notificationDetails
-          ? `token=...${tokenSuffix(event.notificationDetails.token)} url=${event.notificationDetails.url}`
+          ? `token=${tokenPreview(event.notificationDetails.token)}... url=${event.notificationDetails.url}`
           : 'no notification details',
       );
       setStatus('enabled');
@@ -110,7 +110,7 @@ export function NotificationSection({ appName, accentColor, backendUrl, userAddr
     };
 
     const onNotificationsEnabled = (event: { notificationDetails: { token: string } }) => {
-      logEvent('notificationsEnabled', `token=...${tokenSuffix(event.notificationDetails.token)}`);
+      logEvent('notificationsEnabled', `token=${tokenPreview(event.notificationDetails.token)}...`);
       setStatus('enabled');
     };
 
@@ -144,7 +144,7 @@ export function NotificationSection({ appName, accentColor, backendUrl, userAddr
         userAddress,
         hasNotificationDetails: Boolean(result.notificationDetails),
         sendUrl: result.notificationDetails?.url,
-        tokenSuffix: result.notificationDetails?.token ? tokenSuffix(result.notificationDetails.token) : undefined,
+        tokenPreview: result.notificationDetails?.token ? tokenPreview(result.notificationDetails.token) : undefined,
       });
 
       if (result.notificationDetails) {
