@@ -24,44 +24,8 @@ export function NotificationSection({ appName, accentColor, backendUrl, userAddr
     setEventLog((prev) => [{ event, detail, timestamp }, ...prev.slice(0, 9)]);
   }, []);
 
-  const registerNotificationDetails = useCallback(
-    async (notificationDetails: { url: string; token: string }) => {
-      console.log(`${logPrefix} registerNotificationDetails -> POST /webhook`, {
-        userAddress,
-        backendUrl,
-        sendUrl: notificationDetails.url,
-        tokenPreview: tokenPreview(notificationDetails.token),
-      });
-      const res = await fetch(`${backendUrl}/webhook`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          event: 'miniapp_added',
-          userAddress,
-          notificationDetails,
-        }),
-      });
-
-      console.log(`${logPrefix} registerNotificationDetails <- response`, {
-        status: res.status,
-        ok: res.ok,
-        userAddress,
-      });
-
-      if (!res.ok) {
-        throw new Error(`Webhook registration failed: HTTP ${res.status}`);
-      }
-    },
-    [backendUrl, logPrefix, userAddress],
-  );
-
   const checkNotificationStatus = useCallback(async () => {
     if (!userAddress) return false;
-
-    console.log(`${logPrefix} checkNotificationStatus -> request`, {
-      userAddress,
-      backendUrl,
-    });
     const res = await fetch(`${backendUrl}/api/notification-status?userAddress=${userAddress}`);
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
@@ -147,9 +111,7 @@ export function NotificationSection({ appName, accentColor, backendUrl, userAddr
         tokenPreview: result.notificationDetails?.token ? tokenPreview(result.notificationDetails.token) : undefined,
       });
 
-      if (result.notificationDetails) {
-        await registerNotificationDetails(result.notificationDetails);
-      } else {
+      if (!result.notificationDetails) {
         console.log(`${logPrefix} handleEnable addMiniApp returned no notificationDetails`, {
           userAddress,
         });
@@ -180,7 +142,7 @@ export function NotificationSection({ appName, accentColor, backendUrl, userAddr
       setError(e instanceof Error ? e.message : 'Failed to enable notifications');
       setStatus('error');
     }
-  }, [backendUrl, checkNotificationStatus, logPrefix, registerNotificationDetails, userAddress]);
+  }, [backendUrl, checkNotificationStatus, logPrefix, userAddress]);
 
   const handleSend = useCallback(async () => {
     if (!userAddress) return;

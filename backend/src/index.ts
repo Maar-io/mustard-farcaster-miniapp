@@ -69,7 +69,7 @@ async function sendNotification(
   return responseBody
 }
 
-// Webhook endpoint - receives miniapp_added events from host
+// Webhook endpoint - receives miniapp lifecycle events from host
 app.post('/webhook', async (c) => {
   const body = await c.req.json() as {
     event?: string
