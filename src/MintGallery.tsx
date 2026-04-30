@@ -27,7 +27,7 @@ const NFT_ABI = [
   },
 ] as const;
 
-const COOLDOWN_MS = 60000;
+const COOLDOWN_MS = 20000;
 
 interface MintGalleryProps {
   address: `0x${string}`;
