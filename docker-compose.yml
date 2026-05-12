@@ -5,6 +5,8 @@ services:
       dockerfile: Dockerfile
     ports:
       - "5174:5174"
+    environment:
+      - FRONTEND_PORT=5174
     depends_on:
       - backend
 
