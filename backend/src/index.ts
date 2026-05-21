@@ -62,12 +62,44 @@ async function sendNotification(
   notifUrl: string,
   payload: { notificationId: string; title: string; body: string; targetUrl: string; tokens: string[] },
 ) {
+  const startedAt = Date.now()
   const response = await fetch(notifUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
+  const elapsedMs = Date.now() - startedAt
   const responseBody = await response.text()
+
+  // NS returns a JSON envelope: { successfulTokens, invalidTokens, rateLimitedTokens }.
+  // Parse defensively so callers see *which bucket* each input token landed in
+  // (a 200 with all tokens in `invalidTokens` is not a real delivery).
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(responseBody)
+  } catch {
+    parsed = undefined
+  }
+  const envelope =
+    parsed && typeof parsed === 'object'
+      ? (parsed as {
+          successfulTokens?: string[]
+          invalidTokens?: string[]
+          rateLimitedTokens?: string[]
+        })
+      : {}
+  const summary = {
+    status: response.status,
+    elapsedMs,
+    notificationId: payload.notificationId,
+    requestedTokens: payload.tokens.length,
+    successful: envelope.successfulTokens?.length ?? 0,
+    invalid: envelope.invalidTokens?.length ?? 0,
+    rateLimited: envelope.rateLimitedTokens?.length ?? 0,
+    rawBody: parsed ? undefined : responseBody.slice(0, 200),
+  }
+  console.log(`${LOG_PREFIX} [send] NS response`, summary)
+
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${responseBody}`)
   }
