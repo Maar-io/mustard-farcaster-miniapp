@@ -108,14 +108,26 @@ async function sendNotification(
 
 // Webhook endpoint - receives miniapp lifecycle events from host
 app.post('/webhook', async (c) => {
-  const body = await c.req.json() as {
+  const rawBody = await c.req.text()
+  console.log(`${LOG_PREFIX} [webhook] ===== incoming request =====`)
+  console.log(`${LOG_PREFIX} [webhook] method=${c.req.method} url=${c.req.url}`)
+  console.log(`${LOG_PREFIX} [webhook] headers=${JSON.stringify(Object.fromEntries(c.req.raw.headers.entries()))}`)
+  console.log(`${LOG_PREFIX} [webhook] query=${JSON.stringify(c.req.query())}`)
+  console.log(`${LOG_PREFIX} [webhook] raw body=${rawBody}`)
+
+  let body: {
     event?: string
     userAddress?: string
     notificationDetails?: { url: string; token: string }
+  } = {}
+  try {
+    body = rawBody ? JSON.parse(rawBody) : {}
+  } catch (err) {
+    console.log(`${LOG_PREFIX} [webhook] failed to parse body as JSON: ${err instanceof Error ? err.message : String(err)}`)
   }
   const normalizedUserAddress = body.userAddress ? normalizeUserAddress(body.userAddress) : undefined
 
-  console.log(`${LOG_PREFIX} [webhook] received event=${body.event}, userAddress=${body.userAddress}, body=${JSON.stringify(body).slice(0, 200)}`)
+  console.log(`${LOG_PREFIX} [webhook] parsed event=${body.event}, userAddress=${body.userAddress}`)
 
   if ((body.event === 'miniapp_added' || body.event === 'notifications_enabled') && body.notificationDetails && normalizedUserAddress) {
     tokensByAddress.set(normalizedUserAddress, body.notificationDetails)
