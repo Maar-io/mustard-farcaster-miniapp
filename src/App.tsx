@@ -5,7 +5,7 @@ import { ContextSection } from "./ContextSection";
 import { MintGallery } from "./MintGallery";
 import { NotificationSection } from "./NotificationSection";
 
-const MUSTARD_BACKEND_URL = "http://localhost:3300";
+const MUSTARD_BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? "";
 const MUSTARD_LOG_PREFIX = "[MUSTARD][mustard]";
 
 function SectionDivider({ title }: { title: string }) {
