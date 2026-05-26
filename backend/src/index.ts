@@ -8,11 +8,6 @@ app.use('*', cors())
 // Use env vars for Docker support, fallback to localhost for local dev
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5174'
 const PORT = Number(process.env.PORT || 3300)
-// Notification Server (Go NS) — base URL the miniapp posts notifications to
-// when it needs to deliver via NS instead of a per-token send URL handed in
-// by the host. Used by the manual-test fallback below; once NS implements
-// the `miniapp_added` webhook, this can be removed.
-const NS_BASE_URL = process.env.NOTIFS_API_BASE_URL || 'https://ns-sapp--dev-sapp.shygoat.xyz/api/v1'
 const LOG_PREFIX = '[MUSTARD]'
 
 // Notification details indexed by userAddress (received via webhook from host)
@@ -207,44 +202,19 @@ app.post('/api/mint', async (c) => {
   return c.json({ success: true, scheduledFor })
 })
 
-// Test notification endpoint - called by frontend to send a test notification.
-// Accepts an optional `fallbackToken` that the user pasted into the miniapp UI:
-// when no real token has arrived via the `/webhook` (which the host's new
-// Notification Server doesn't call yet), we route the notification through NS
-// directly using the pasted token. Once NS implements the miniapp_added
-// webhook, the fallback path becomes dead code and can be removed.
+// Test notification endpoint - called by frontend to send a test notification
+// using the token stored via /webhook for this user.
 app.post('/api/test-notification', async (c) => {
-  const body = await c.req.json() as { userAddress?: string; fallbackToken?: string }
+  const body = await c.req.json() as { userAddress?: string }
   const normalizedUserAddress = body.userAddress ? normalizeUserAddress(body.userAddress) : undefined
-  const fallbackToken = typeof body.fallbackToken === 'string' && body.fallbackToken.length > 0
-    ? body.fallbackToken
-    : undefined
-  console.log(`${LOG_PREFIX} [test] received request, userAddress=${body.userAddress || "MISSING"}, hasFallbackToken=${Boolean(fallbackToken)}`)
+  console.log(`${LOG_PREFIX} [test] received request, userAddress=${body.userAddress || "MISSING"}`)
 
   if (!normalizedUserAddress) {
     return c.json({ error: 'Missing userAddress' }, 400)
   }
 
-  // Resolve which send transport to use:
-  //  - Webhook token present → POST to the host-supplied `details.url` with
-  //    `details.token`. This is the production path (legacy host + future NS-
-  //    via-webhook).
-  //  - No webhook token but a fallback token was pasted → POST to NS's
-  //    `/notification` endpoint with the pasted token. Manual-test path.
-  //  - Neither → 404 as before.
   const details = tokensByAddress.get(normalizedUserAddress)
-  let sendUrl: string
-  let sendToken: string
-  let usedFallback = false
-  if (details) {
-    sendUrl = details.url
-    sendToken = details.token
-  } else if (fallbackToken) {
-    sendUrl = `${NS_BASE_URL}/notification`
-    sendToken = fallbackToken
-    usedFallback = true
-    console.log(`${LOG_PREFIX} [test] using fallback token via NS at ${sendUrl}`)
-  } else {
+  if (!details) {
     console.log(`${LOG_PREFIX} [test] no notification token found for address ${normalizedUserAddress}`)
     return c.json({ error: 'No notification registered for this address' }, 404)
   }
@@ -258,12 +228,12 @@ app.post('/api/test-notification', async (c) => {
       title: 'Mustard',
       body: notificationBody,
       targetUrl: FRONTEND_URL,
-      tokens: [sendToken],
+      tokens: [details.token],
     }
-    console.log(`${LOG_PREFIX} [test] sending test notification to ${sendUrl} (usedFallback=${usedFallback})`)
-    const result = await sendNotification(sendUrl, payload)
+    console.log(`${LOG_PREFIX} [test] sending test notification to ${details.url}`)
+    const result = await sendNotification(details.url, payload)
     console.log(`${LOG_PREFIX} [test] notification sent:`, result)
-    return c.json({ success: true, usedFallback })
+    return c.json({ success: true })
   } catch (e) {
     const errorMessage = e instanceof Error ? e.message : 'Failed to send notification'
     console.error(`${LOG_PREFIX} [test] failed to send notification:`, e)
