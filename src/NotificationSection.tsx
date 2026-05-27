@@ -3,7 +3,9 @@ import { useCallback, useEffect, useState } from "react";
 
 type EventEntry = { event: string; detail: string; timestamp: string };
 
-const tokenPreview = (token: string) => token.slice(0, 8);
+// NS tokens share a common prefix (ntf_<ULID>.sk_live_...), so the trailing
+// chars are what actually distinguish one token from another.
+const tokenPreview = (token: string) => `...${token.slice(-8)}`;
 
 interface NotificationSectionProps {
   appName: string;
@@ -69,7 +71,7 @@ export function NotificationSection({ appName, accentColor, backendUrl, userAddr
       logEvent(
         "miniAppAdded",
         event.notificationDetails
-          ? `token=${tokenPreview(event.notificationDetails.token)}... url=${event.notificationDetails.url}`
+          ? `token=${tokenPreview(event.notificationDetails.token)} url=${event.notificationDetails.url}`
           : "no notification details",
       );
       if (event.notificationDetails) {
@@ -87,7 +89,7 @@ export function NotificationSection({ appName, accentColor, backendUrl, userAddr
     };
 
     const onNotificationsEnabled = (event: { notificationDetails: { token: string } }) => {
-      logEvent("notificationsEnabled", `token=${tokenPreview(event.notificationDetails.token)}...`);
+      logEvent("notificationsEnabled", `token=${tokenPreview(event.notificationDetails.token)}`);
       setHasToken(true);
     };
 
