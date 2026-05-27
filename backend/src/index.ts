@@ -1,6 +1,7 @@
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
+import { NS_WEBHOOK_EVENTS, decodeUserAddress, parseWebhookPayload, verifyWebhookSignature } from './ns-webhook.js'
 
 const app = new Hono()
 app.use('*', cors())
@@ -101,44 +102,59 @@ async function sendNotification(
   return responseBody
 }
 
-// Webhook endpoint - receives miniapp lifecycle events from host
+// NS may send the notification URL without a scheme (e.g. "ns.example/notification").
+// `fetch` requires an absolute URL; default to https for any scheme-less value.
+const ensureHttps = (url: string) => (/^https?:\/\//i.test(url) ? url : `https://${url}`)
+
+// Webhook endpoint - receives lifecycle events from the Notification Server (NS).
+// See backend/NS_WEBHOOK.md for the contract.
 app.post('/webhook', async (c) => {
   const rawBody = await c.req.text()
   console.log(`${LOG_PREFIX} [webhook] ===== incoming request =====`)
   console.log(`${LOG_PREFIX} [webhook] method=${c.req.method} url=${c.req.url}`)
   console.log(`${LOG_PREFIX} [webhook] headers=${JSON.stringify(Object.fromEntries(c.req.raw.headers.entries()))}`)
-  console.log(`${LOG_PREFIX} [webhook] query=${JSON.stringify(c.req.query())}`)
   console.log(`${LOG_PREFIX} [webhook] raw body=${rawBody}`)
 
-  let body: {
-    event?: string
-    userAddress?: string
-    notificationDetails?: { url: string; token: string }
-  } = {}
   try {
-    body = rawBody ? JSON.parse(rawBody) : {}
+    await verifyWebhookSignature(rawBody, c.req.header('x-webhook-signature'))
   } catch (err) {
-    console.log(`${LOG_PREFIX} [webhook] failed to parse body as JSON: ${err instanceof Error ? err.message : String(err)}`)
+    console.error(`${LOG_PREFIX} [webhook] signature verification failed:`, err)
+    return c.json({ success: false, error: 'invalid signature' }, 401)
   }
-  const normalizedUserAddress = body.userAddress ? normalizeUserAddress(body.userAddress) : undefined
 
-  console.log(`${LOG_PREFIX} [webhook] parsed event=${body.event}, userAddress=${body.userAddress}`)
+  let payload: ReturnType<typeof parseWebhookPayload>
+  try {
+    payload = parseWebhookPayload(rawBody)
+  } catch (err) {
+    console.error(`${LOG_PREFIX} [webhook] failed to parse NS payload:`, err)
+    return c.json({ success: false, error: 'invalid payload' }, 400)
+  }
 
-  if ((body.event === 'miniapp_added' || body.event === 'notifications_enabled') && body.notificationDetails && normalizedUserAddress) {
-    tokensByAddress.set(normalizedUserAddress, body.notificationDetails)
-    console.log(`${LOG_PREFIX} [webhook] stored token for address ${normalizedUserAddress}: ${tokenPreview(body.notificationDetails.token)}...`)
-    console.log(`${LOG_PREFIX} [webhook] notification URL: ${body.notificationDetails.url}`)
-    console.log(`${LOG_PREFIX} [webhook] total addresses stored: ${tokensByAddress.size}`)
-    logTokenStore(`after ${body.event}`)
-  } else if (body.event === 'miniapp_removed' || body.event === 'notifications_disabled') {
-    if (normalizedUserAddress) {
-      tokensByAddress.delete(normalizedUserAddress)
-      console.log(`${LOG_PREFIX} [webhook] removed token for address ${normalizedUserAddress}`)
-      logTokenStore(`after ${body.event}`)
+  let userAddress: string
+  try {
+    userAddress = await decodeUserAddress(c.req.header('x-user-address'))
+  } catch (err) {
+    console.error(`${LOG_PREFIX} [webhook] failed to decode x-user-address:`, err)
+    return c.json({ success: false, error: 'invalid x-user-address' }, 400)
+  }
+
+  switch (payload.event) {
+    case NS_WEBHOOK_EVENTS.MINIAPP_ADDED:
+    case NS_WEBHOOK_EVENTS.NOTIFICATIONS_ENABLED: {
+      const url = ensureHttps(payload.notificationDetails.url)
+      tokensByAddress.set(userAddress, { url, token: payload.notificationDetails.token })
+      console.log(
+        `${LOG_PREFIX} [webhook] ${payload.event} userAddress=${userAddress} url=${url} token=${tokenPreview(payload.notificationDetails.token)}...`,
+      )
+      logTokenStore(`after ${payload.event}`)
+      break
     }
-  } else {
-    console.log(`${LOG_PREFIX} [webhook] ignoring event (not handled or missing fields)`)
-    logTokenStore('after ignored webhook event')
+    case NS_WEBHOOK_EVENTS.MINIAPP_REMOVED:
+    case NS_WEBHOOK_EVENTS.NOTIFICATIONS_DISABLED:
+      tokensByAddress.delete(userAddress)
+      console.log(`${LOG_PREFIX} [webhook] ${payload.event} userAddress=${userAddress}`)
+      logTokenStore(`after ${payload.event}`)
+      break
   }
 
   return c.json({ success: true })

@@ -9,7 +9,8 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",
-    "hono": "^4.6.0"
+    "hono": "^4.6.0",
+    "jose": "^6.2.3"
   },
   "devDependencies": {
     "tsx": "^4.19.0",
