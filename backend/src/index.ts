@@ -6,18 +6,14 @@ import { NS_WEBHOOK_EVENTS, decodeUserAddress, parseWebhookPayload, verifyWebhoo
 const app = new Hono()
 app.use('*', cors())
 
-// Use env vars for Docker support, fallback to localhost for local dev
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5174'
 const PORT = Number(process.env.PORT || 3300)
 const LOG_PREFIX = '[MUSTARD]'
 
-// Push token + send-notification URL indexed by userAddress (received via NS webhook).
-// Both come from `notificationDetails` on miniapp_added / notifications_enabled.
 const tokensByAddress = new Map<string, { token: string; url: string }>()
 
-// Scheduled notifications queue. `url` is the per-user NS send-notification
-// endpoint captured at schedule time, so we don't have to re-resolve later
-// (and so a later miniapp_removed clearing the token doesn't strand the URL).
+// `url` is captured at schedule time so a later miniapp_removed clearing the
+// token doesn't strand the queued item without a send target.
 const scheduledNotifications: Array<{
   id: string
   scheduledFor: number
@@ -43,8 +39,8 @@ const testNotificationBodies = [
 
 let nextTestNotificationBodyIndex = 0
 
-// Last 8 chars — NS tokens share a common prefix (ntf_<ULID>.sk_live_...),
-// so the trailing chars are what actually distinguish one token from another.
+// NS tokens share a common prefix (ntf_<ULID>.sk_live_...), so the trailing
+// chars are what actually distinguish one token from another.
 const tokenPreview = (token: string) => `...${token.slice(-8)}`
 
 const normalizeUserAddress = (userAddress: string) => userAddress.toLowerCase()
@@ -58,8 +54,6 @@ const logTokenStore = (label: string) => {
   console.log(`${LOG_PREFIX} [store] ${label}: count=${entries.length}`, entries)
 }
 
-// Helper: send a notification via the NS send-notification endpoint.
-// `url` comes from the webhook's notificationDetails.url (per-user).
 async function sendNotification(
   url: string,
   payload: { notificationId: string; title: string; body: string; targetUrl: string; tokens: string[] },
@@ -96,8 +90,7 @@ async function sendNotification(
   return responseBody
 }
 
-// Webhook endpoint - receives lifecycle events from the Notification Server (NS).
-// See backend/NS_WEBHOOK.md for the contract.
+// See backend/NS_WEBHOOK.md for the NS webhook contract.
 app.post('/webhook', async (c) => {
   const rawBody = await c.req.text()
   console.log(`${LOG_PREFIX} [webhook] ===== incoming request =====`)
@@ -150,7 +143,6 @@ app.post('/webhook', async (c) => {
   return c.json({ success: true })
 })
 
-// Mint endpoint - called by frontend after successful mint
 app.post('/api/mint', async (c) => {
   const body = await c.req.json() as { userAddress?: string }
   const normalizedUserAddress = body.userAddress ? normalizeUserAddress(body.userAddress) : undefined
@@ -168,7 +160,6 @@ app.post('/api/mint', async (c) => {
 
   const now = Date.now()
 
-  // Immediate notification: NFT minted
   try {
     const immediatePayload = {
       notificationId: `mustard-minted-${now}`,
@@ -184,9 +175,9 @@ app.post('/api/mint', async (c) => {
     console.error(`${LOG_PREFIX} [mint] failed to send immediate notification:`, e)
   }
 
-  // Schedule "mint again" notification for 60 seconds later
+  const MINT_AGAIN_DELAY_MS = 20_000
   const notificationId = `mustardready-${now}`
-  const scheduledFor = now + 20_000
+  const scheduledFor = now + MINT_AGAIN_DELAY_MS
 
   scheduledNotifications.push({
     id: notificationId,
@@ -202,14 +193,12 @@ app.post('/api/mint', async (c) => {
   })
 
   const scheduledDate = new Date(scheduledFor).toLocaleTimeString()
-  console.log(`${LOG_PREFIX} [scheduler] notification "${notificationId}" scheduled for ${scheduledDate} (in 60s)`)
+  console.log(`${LOG_PREFIX} [scheduler] notification "${notificationId}" scheduled for ${scheduledDate} (in ${MINT_AGAIN_DELAY_MS / 1000}s)`)
   console.log(`${LOG_PREFIX} [scheduler] queue size: ${scheduledNotifications.length}`)
 
   return c.json({ success: true, scheduledFor })
 })
 
-// Test notification endpoint - called by frontend to send a test notification
-// using the token stored via /webhook for this user.
 app.post('/api/test-notification', async (c) => {
   const body = await c.req.json() as { userAddress?: string }
   const normalizedUserAddress = body.userAddress ? normalizeUserAddress(body.userAddress) : undefined
@@ -247,11 +236,9 @@ app.post('/api/test-notification', async (c) => {
   }
 })
 
-// Last logged status per address — used to suppress identical poll lines
-// (the frontend polls /api/notification-status on a short interval).
+// Suppress identical poll lines — the frontend polls this endpoint on a short interval.
 const lastStatusLog = new Map<string, boolean>()
 
-// Notification status endpoint - check if user has active notification registration
 app.get('/api/notification-status', (c) => {
   const userAddress = c.req.query('userAddress')
   const normalizedUserAddress = userAddress ? normalizeUserAddress(userAddress) : undefined
@@ -274,7 +261,6 @@ app.get('/api/notification-status', (c) => {
   return c.json({ enabled })
 })
 
-// Health check
 app.get('/health', (c) => {
   return c.json({
     status: 'ok',
@@ -283,7 +269,6 @@ app.get('/health', (c) => {
   })
 })
 
-// Scheduler - checks every second for due notifications
 setInterval(async () => {
   const now = Date.now()
   const due = scheduledNotifications.filter(n => n.scheduledFor <= now)
@@ -304,7 +289,6 @@ setInterval(async () => {
       console.error(`${LOG_PREFIX} [scheduler] FAILED to send notification:`, e)
     }
 
-    // Remove from queue regardless of success/failure
     const index = scheduledNotifications.findIndex(n => n.id === item.id)
     if (index !== -1) {
       scheduledNotifications.splice(index, 1)

@@ -7,7 +7,6 @@ interface ContextSectionProps {
 export function ContextSection({ starPoints, username, pfpUrl }: ContextSectionProps) {
   return (
     <div style={{ fontSize: "14px" }}>
-      {/* User info with pfp */}
       {(username || pfpUrl) && (
         <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
           {pfpUrl && (
@@ -26,7 +25,6 @@ export function ContextSection({ starPoints, username, pfpUrl }: ContextSectionP
         </div>
       )}
 
-      {/* Star points */}
       {starPoints !== null && (
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <span style={{ fontSize: "16px" }}>⭐</span>

@@ -30,7 +30,6 @@ export type NsWebhookPayload =
   | { event: typeof NS_WEBHOOK_EVENTS.MINIAPP_REMOVED }
   | { event: typeof NS_WEBHOOK_EVENTS.NOTIFICATIONS_DISABLED }
 
-// Parse and narrow an NS webhook body into the typed union. Throws on shape mismatch.
 export function parseWebhookPayload(rawBody: string): NsWebhookPayload {
   let parsed: unknown
   try {
@@ -67,10 +66,9 @@ function assertNotificationDetails(value: unknown): NotificationDetails {
   return { url: d.url, token: d.token }
 }
 
-// Verify and decode the `x-user-address` header. Per the NS team, this is a
-// JWS Compact Serialization (signed with the same key as X-Webhook-Signature)
-// whose payload IS the raw address string — not a JWT with claims.
-// Returns the lowercased address. Throws on missing or invalid header.
+// Per the NS team, `x-user-address` is a JWS Compact Serialization (signed with
+// the same key as X-Webhook-Signature) whose payload IS the raw address string
+// — not a JWT with claims.
 export async function decodeUserAddress(headerValue: string | undefined): Promise<string> {
   if (!headerValue) {
     throw new Error('ns-webhook: missing x-user-address header')
@@ -84,11 +82,9 @@ export async function decodeUserAddress(headerValue: string | undefined): Promis
   return address.toLowerCase()
 }
 
-// Verify the `X-Webhook-Signature` header against the raw body using NS JWKS.
-// Per the NS team, the header is a JWS Compact Serialization (header.payload.sig)
-// whose signed payload is the marshaled JSON request body verbatim. Read the
-// body as raw bytes/string — reserializing parsed JSON will break byte equality.
-// Throws on mismatch. NOT wired in Step 1 — ships ready for Step 2.
+// Per the NS team, `X-Webhook-Signature` is a JWS Compact Serialization whose
+// signed payload is the marshaled JSON request body verbatim. The body must be
+// read as raw bytes/string — reserializing parsed JSON will break byte equality.
 export async function verifyWebhookSignature(
   rawBody: string,
   signatureHeader: string | undefined,

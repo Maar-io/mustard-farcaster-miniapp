@@ -49,10 +49,9 @@ function ConnectMenu() {
   const [username, setUsername] = useState<string>("");
   const [pfpUrl, setPfpUrl] = useState<string>("");
 
-  // Get the Startale connector
   const startaleConnector = connectors.find((c) => c.name.toLowerCase() === "startale");
 
-  // Read context from sdk (async because of Comlink)
+  // sdk.context is a Comlink proxy, so reading fields is async.
   useEffect(() => {
     (async () => {
       try {
@@ -127,7 +126,6 @@ function ConnectMenu() {
       <div style={{ marginBottom: "8px" }}>Status: {status}</div>
       <div style={{ marginBottom: "8px" }}>Chain: {chain?.name}</div>
 
-      {/* Use only Startale connector */}
       {startaleConnector ? (
         <button
           type="button"
