@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { NS_SEND_NOTIFICATION_URL, NS_WEBHOOK_EVENTS, decodeUserAddress, parseWebhookPayload, verifyWebhookSignature } from './ns-webhook.js'
+import { NS_WEBHOOK_EVENTS, decodeUserAddress, parseWebhookPayload, verifyWebhookSignature } from './ns-webhook.js'
 
 const app = new Hono()
 app.use('*', cors())
@@ -11,15 +11,17 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5174'
 const PORT = Number(process.env.PORT || 3300)
 const LOG_PREFIX = '[MUSTARD]'
 
-// Push token indexed by userAddress (received via NS webhook).
-// NS sends a notificationDetails.url but it's malformed; we always POST to
-// NS_SEND_NOTIFICATION_URL derived from NS_BASE_URL, so only the token matters.
-const tokensByAddress = new Map<string, string>()
+// Push token + send-notification URL indexed by userAddress (received via NS webhook).
+// Both come from `notificationDetails` on miniapp_added / notifications_enabled.
+const tokensByAddress = new Map<string, { token: string; url: string }>()
 
-// Scheduled notifications queue
+// Scheduled notifications queue. `url` is the per-user NS send-notification
+// endpoint captured at schedule time, so we don't have to re-resolve later
+// (and so a later miniapp_removed clearing the token doesn't strand the URL).
 const scheduledNotifications: Array<{
   id: string
   scheduledFor: number
+  url: string
   notification: {
     notificationId: string
     title: string
@@ -48,18 +50,22 @@ const tokenPreview = (token: string) => `...${token.slice(-8)}`
 const normalizeUserAddress = (userAddress: string) => userAddress.toLowerCase()
 
 const logTokenStore = (label: string) => {
-  const entries = Array.from(tokensByAddress.entries()).map(([address, token]) => ({
+  const entries = Array.from(tokensByAddress.entries()).map(([address, entry]) => ({
     address,
-    tokenPreview: tokenPreview(token),
+    tokenPreview: tokenPreview(entry.token),
+    url: entry.url,
   }))
   console.log(`${LOG_PREFIX} [store] ${label}: count=${entries.length}`, entries)
 }
 
 // Helper: send a notification via the NS send-notification endpoint.
+// `url` comes from the webhook's notificationDetails.url (per-user).
 async function sendNotification(
+  url: string,
   payload: { notificationId: string; title: string; body: string; targetUrl: string; tokens: string[] },
 ) {
   console.log(`${LOG_PREFIX} [send] outgoing payload`, {
+    url,
     notificationId: payload.notificationId,
     title: payload.title,
     body: payload.body,
@@ -69,7 +75,7 @@ async function sendNotification(
   })
 
   const startedAt = Date.now()
-  const response = await fetch(NS_SEND_NOTIFICATION_URL, {
+  const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -125,10 +131,10 @@ app.post('/webhook', async (c) => {
   switch (payload.event) {
     case NS_WEBHOOK_EVENTS.MINIAPP_ADDED:
     case NS_WEBHOOK_EVENTS.NOTIFICATIONS_ENABLED: {
-      const { token } = payload.notificationDetails
-      tokensByAddress.set(userAddress, token)
+      const { token, url } = payload.notificationDetails
+      tokensByAddress.set(userAddress, { token, url })
       console.log(
-        `${LOG_PREFIX} [webhook] ${payload.event} userAddress=${userAddress} token=${tokenPreview(token)}`,
+        `${LOG_PREFIX} [webhook] ${payload.event} userAddress=${userAddress} token=${tokenPreview(token)} url=${url}`,
       )
       logTokenStore(`after ${payload.event}`)
       break
@@ -154,8 +160,8 @@ app.post('/api/mint', async (c) => {
     return c.json({ error: 'Missing userAddress' }, 400)
   }
 
-  const token = tokensByAddress.get(normalizedUserAddress)
-  if (!token) {
+  const entry = tokensByAddress.get(normalizedUserAddress)
+  if (!entry) {
     console.log(`${LOG_PREFIX} [mint] no notification token found for address ${normalizedUserAddress}`)
     return c.json({ error: 'No notification registered for this address' }, 404)
   }
@@ -169,10 +175,10 @@ app.post('/api/mint', async (c) => {
       title: 'Test mint notification',
       body: 'New Mustard NFT was minted!',
       targetUrl: FRONTEND_URL,
-      tokens: [token],
+      tokens: [entry.token],
     }
-    console.log(`${LOG_PREFIX} [mint] sending immediate notification to ${NS_SEND_NOTIFICATION_URL}`)
-    const result = await sendNotification(immediatePayload)
+    console.log(`${LOG_PREFIX} [mint] sending immediate notification to ${entry.url}`)
+    const result = await sendNotification(entry.url, immediatePayload)
     console.log(`${LOG_PREFIX} [mint] immediate notification sent:`, result)
   } catch (e) {
     console.error(`${LOG_PREFIX} [mint] failed to send immediate notification:`, e)
@@ -185,12 +191,13 @@ app.post('/api/mint', async (c) => {
   scheduledNotifications.push({
     id: notificationId,
     scheduledFor,
+    url: entry.url,
     notification: {
       notificationId,
       title: 'Test scheduled notification',
       body: 'You can mint NFT again!',
       targetUrl: FRONTEND_URL,
-      tokens: [token],
+      tokens: [entry.token],
     },
   })
 
@@ -212,8 +219,8 @@ app.post('/api/test-notification', async (c) => {
     return c.json({ error: 'Missing userAddress' }, 400)
   }
 
-  const token = tokensByAddress.get(normalizedUserAddress)
-  if (!token) {
+  const entry = tokensByAddress.get(normalizedUserAddress)
+  if (!entry) {
     console.log(`${LOG_PREFIX} [test] no notification token found for address ${normalizedUserAddress}`)
     return c.json({ error: 'No notification registered for this address' }, 404)
   }
@@ -227,10 +234,10 @@ app.post('/api/test-notification', async (c) => {
       title: 'Test notification',
       body: notificationBody,
       targetUrl: FRONTEND_URL,
-      tokens: [token],
+      tokens: [entry.token],
     }
-    console.log(`${LOG_PREFIX} [test] sending test notification to ${NS_SEND_NOTIFICATION_URL}`)
-    const result = await sendNotification(payload)
+    console.log(`${LOG_PREFIX} [test] sending test notification to ${entry.url}`)
+    const result = await sendNotification(entry.url, payload)
     console.log(`${LOG_PREFIX} [test] notification sent:`, result)
     return c.json({ success: true })
   } catch (e) {
@@ -240,6 +247,10 @@ app.post('/api/test-notification', async (c) => {
   }
 })
 
+// Last logged status per address — used to suppress identical poll lines
+// (the frontend polls /api/notification-status on a short interval).
+const lastStatusLog = new Map<string, boolean>()
+
 // Notification status endpoint - check if user has active notification registration
 app.get('/api/notification-status', (c) => {
   const userAddress = c.req.query('userAddress')
@@ -247,14 +258,19 @@ app.get('/api/notification-status', (c) => {
   if (!normalizedUserAddress) {
     return c.json({ error: 'Missing userAddress query param' }, 400)
   }
-  const token = tokensByAddress.get(normalizedUserAddress)
-  const enabled = token !== undefined
-  console.log(`${LOG_PREFIX} [status] userAddress=${normalizedUserAddress}, enabled=${enabled}`)
-  if (token) {
-    console.log(`${LOG_PREFIX} [status] token preview for ${normalizedUserAddress}: ${tokenPreview(token)}`)
-  } else {
-    logTokenStore('status lookup miss')
+  const entry = tokensByAddress.get(normalizedUserAddress)
+  const enabled = entry !== undefined
+
+  if (lastStatusLog.get(normalizedUserAddress) !== enabled) {
+    console.log(`${LOG_PREFIX} [status] userAddress=${normalizedUserAddress}, enabled=${enabled}`)
+    if (entry) {
+      console.log(`${LOG_PREFIX} [status] token preview for ${normalizedUserAddress}: ${tokenPreview(entry.token)}`)
+    } else {
+      logTokenStore('status lookup miss')
+    }
+    lastStatusLog.set(normalizedUserAddress, enabled)
   }
+
   return c.json({ enabled })
 })
 
@@ -277,11 +293,11 @@ setInterval(async () => {
   }
 
   for (const item of due) {
-    console.log(`${LOG_PREFIX} [scheduler] sending to ${NS_SEND_NOTIFICATION_URL}`)
+    console.log(`${LOG_PREFIX} [scheduler] sending to ${item.url}`)
     console.log(`${LOG_PREFIX} [scheduler] payload: ${JSON.stringify(item.notification)}`)
 
     try {
-      const result = await sendNotification(item.notification)
+      const result = await sendNotification(item.url, item.notification)
       console.log(`${LOG_PREFIX} [scheduler] SUCCESS sent notification: ${item.id}`)
       console.log(`${LOG_PREFIX} [scheduler] response: ${result}`)
     } catch (e) {

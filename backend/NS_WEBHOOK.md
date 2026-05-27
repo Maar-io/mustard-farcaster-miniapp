@@ -34,7 +34,7 @@ Four event types — two carry `notificationDetails`, two don't:
 | `notifications_disabled` | `{ event }` only                                                | User toggled notifications off. **Stop sending.** |
 | `miniapp_removed`        | `{ event }` only                                                | User removed the miniapp. **Delete the token.** |
 
-`notificationDetails.url` is the NS send-notification endpoint you POST to when delivering a push; `notificationDetails.token` is the per-user token to include in that POST.
+`notificationDetails.url` is the fully-qualified NS send-notification endpoint you POST to when delivering a push — use it verbatim, do not derive or rewrite it. `notificationDetails.token` is the per-user token to include in that POST. Store both together when you receive `miniapp_added` / `notifications_enabled`; either can change on a token rotation.
 
 Respond with **HTTP 200** on success. Anything else makes NS retry (confirm the exact retry policy with the NS team).
 
@@ -42,14 +42,14 @@ Respond with **HTTP 200** on success. Anything else makes NS retry (confirm the 
 
 ## 2. Signature format
 
-Both `x-user-address` and `X-Webhook-Signature` use the same NS signing key (look it up in `${NS_BASE_URL}/.well-known/jwks.json` by `kid`) and the same envelope: **JWS Compact Serialization** (`header.payload.signature`, base64url-encoded segments). The difference is what's signed:
+Both `x-user-address` and `X-Webhook-Signature` use the same NS signing key (look it up in the JWKS at `NS_JWKS_URL` by `kid`) and the same envelope: **JWS Compact Serialization** (`header.payload.signature`, base64url-encoded segments). The difference is what's signed:
 
 - **`X-Webhook-Signature`** — signed payload is the marshaled JSON request body, verbatim. Verify by JWS-decoding the header and asserting the signed payload byte-matches the raw request body. Read the body as a raw string — re-serializing parsed JSON will not match.
 - **`x-user-address`** — signed payload is the user's smart-account address string. Not a JWT, no claims envelope: the JWS payload bytes *are* the address. Verify the JWS and use the decoded payload directly.
 
 What to ask the NS team:
 
-1. **`NS_BASE_URL`** — the base URL of the NS service. JWKS is fetched from `${NS_BASE_URL}/.well-known/jwks.json`.
+1. **`NS_JWKS_URL`** — the full URL of the NS JWKS endpoint (typically `https://<ns-host>/.well-known/jwks.json`). Needed up front since signature verification has to happen before you can trust anything in the webhook body.
 2. **Retry policy** on non-2xx responses (so you can size your idempotency window).
 
 ---
@@ -66,10 +66,10 @@ Copy `src/ns-webhook.ts` from this repo into your backend's source tree. The fil
 Set the env var:
 
 ```bash
-NS_BASE_URL=https://ns.example.com   # ask the NS team for the real URL
+NS_JWKS_URL=https://ns.example.com/.well-known/jwks.json   # ask the NS team for the real URL
 ```
 
-The helper reads `process.env.NS_BASE_URL` at module load and throws if it's missing. This is intentional — fail loud at boot rather than at first webhook.
+The helper reads `process.env.NS_JWKS_URL` at module load and throws if it's missing. This is intentional — fail loud at boot rather than at first webhook.
 
 ---
 
@@ -196,7 +196,7 @@ type NsWebhookPayload =
 
 | Symptom | Likely cause |
 | ------- | ------------ |
-| `Failed to fetch JWKS` at boot | `NS_BASE_URL` wrong or NS unreachable from your backend's egress. Curl `${NS_BASE_URL}/.well-known/jwks.json` from the backend host. |
+| `Failed to fetch JWKS` at boot | `NS_JWKS_URL` wrong or NS unreachable from your backend's egress. Curl `${NS_JWKS_URL}` from the backend host. |
 | `JWKSNoMatchingKey` on every request | NS rotated keys and the in-process JWKS cache is stale. `jose` refetches automatically on `kid` miss; if you still see this, check that your `x-user-address` and `X-Webhook-Signature` are actually signed by *this* NS instance and not a sibling. |
 | `x-user-address signed payload is empty` | The JWS verified but its payload had no bytes. Should never happen with a real NS request — confirm you're not stripping the header or passing a placeholder. |
 | `X-Webhook-Signature payload does not match request body` | Your framework parsed and re-serialized the body before handing it to `verifyWebhookSignature`. Read the raw body as a string. |

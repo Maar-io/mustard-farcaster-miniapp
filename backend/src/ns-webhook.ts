@@ -5,17 +5,12 @@
 
 import { compactVerify, createRemoteJWKSet } from 'jose'
 
-const NS_BASE_URL = process.env.NS_BASE_URL
-if (!NS_BASE_URL) {
-  throw new Error('NS_BASE_URL env var is required for ns-webhook.ts (e.g. https://ns.example.com)')
+const NS_JWKS_URL = process.env.NS_JWKS_URL
+if (!NS_JWKS_URL) {
+  throw new Error('NS_JWKS_URL env var is required for ns-webhook.ts (e.g. https://ns.example.com/.well-known/jwks.json)')
 }
 
-const JWKS = createRemoteJWKSet(new URL(`${NS_BASE_URL}/.well-known/jwks.json`))
-
-// Send-notification endpoint per NS swagger (POST {NS_BASE_URL}/api/v1/notification).
-// NS sends a `notificationDetails.url` field in webhooks but it's malformed
-// (missing scheme + /api/v1 prefix), so we derive the URL from NS_BASE_URL.
-export const NS_SEND_NOTIFICATION_URL = `${NS_BASE_URL}/api/v1/notification`
+const JWKS = createRemoteJWKSet(new URL(NS_JWKS_URL))
 
 export const NS_WEBHOOK_EVENTS = {
   MINIAPP_ADDED: 'miniapp_added',
