@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { NS_WEBHOOK_EVENTS, decodeUserAddress, parseWebhookPayload, verifyWebhookSignature } from './ns-webhook.js'
+import { NS_SEND_NOTIFICATION_URL, NS_WEBHOOK_EVENTS, decodeUserAddress, parseWebhookPayload, verifyWebhookSignature } from './ns-webhook.js'
 
 const app = new Hono()
 app.use('*', cors())
@@ -11,14 +11,15 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5174'
 const PORT = Number(process.env.PORT || 3300)
 const LOG_PREFIX = '[MUSTARD]'
 
-// Notification details indexed by userAddress (received via webhook from host)
-const tokensByAddress = new Map<string, { url: string; token: string }>()
+// Push token indexed by userAddress (received via NS webhook).
+// NS sends a notificationDetails.url but it's malformed; we always POST to
+// NS_SEND_NOTIFICATION_URL derived from NS_BASE_URL, so only the token matters.
+const tokensByAddress = new Map<string, string>()
 
 // Scheduled notifications queue
 const scheduledNotifications: Array<{
   id: string
   scheduledFor: number
-  url: string
   notification: {
     notificationId: string
     title: string
@@ -40,26 +41,35 @@ const testNotificationBodies = [
 
 let nextTestNotificationBodyIndex = 0
 
-const tokenPreview = (token: string) => token.slice(0, 8)
+// Last 8 chars — NS tokens share a common prefix (ntf_<ULID>.sk_live_...),
+// so the trailing chars are what actually distinguish one token from another.
+const tokenPreview = (token: string) => `...${token.slice(-8)}`
 
 const normalizeUserAddress = (userAddress: string) => userAddress.toLowerCase()
 
 const logTokenStore = (label: string) => {
-  const entries = Array.from(tokensByAddress.entries()).map(([address, details]) => ({
+  const entries = Array.from(tokensByAddress.entries()).map(([address, token]) => ({
     address,
-    url: details.url,
-    tokenPreview: tokenPreview(details.token),
+    tokenPreview: tokenPreview(token),
   }))
   console.log(`${LOG_PREFIX} [store] ${label}: count=${entries.length}`, entries)
 }
 
-// Helper: send a notification to the stored notification URL
+// Helper: send a notification via the NS send-notification endpoint.
 async function sendNotification(
-  notifUrl: string,
   payload: { notificationId: string; title: string; body: string; targetUrl: string; tokens: string[] },
 ) {
+  console.log(`${LOG_PREFIX} [send] outgoing payload`, {
+    notificationId: payload.notificationId,
+    title: payload.title,
+    body: payload.body,
+    targetUrl: payload.targetUrl,
+    tokensCount: payload.tokens.length,
+    tokensPreview: payload.tokens.map(tokenPreview),
+  })
+
   const startedAt = Date.now()
-  const response = await fetch(notifUrl, {
+  const response = await fetch(NS_SEND_NOTIFICATION_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -67,44 +77,18 @@ async function sendNotification(
   const elapsedMs = Date.now() - startedAt
   const responseBody = await response.text()
 
-  // NS returns a JSON envelope: { successfulTokens, invalidTokens, rateLimitedTokens }.
-  // Parse defensively so callers see *which bucket* each input token landed in
-  // (a 200 with all tokens in `invalidTokens` is not a real delivery).
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(responseBody)
-  } catch {
-    parsed = undefined
-  }
-  const envelope =
-    parsed && typeof parsed === 'object'
-      ? (parsed as {
-          successfulTokens?: string[]
-          invalidTokens?: string[]
-          rateLimitedTokens?: string[]
-        })
-      : {}
-  const summary = {
+  console.log(`${LOG_PREFIX} [send] NS response`, {
     status: response.status,
     elapsedMs,
     notificationId: payload.notificationId,
-    requestedTokens: payload.tokens.length,
-    successful: envelope.successfulTokens?.length ?? 0,
-    invalid: envelope.invalidTokens?.length ?? 0,
-    rateLimited: envelope.rateLimitedTokens?.length ?? 0,
-    rawBody: parsed ? undefined : responseBody.slice(0, 200),
-  }
-  console.log(`${LOG_PREFIX} [send] NS response`, summary)
+    body: responseBody,
+  })
 
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${responseBody}`)
   }
   return responseBody
 }
-
-// NS may send the notification URL without a scheme (e.g. "ns.example/notification").
-// `fetch` requires an absolute URL; default to https for any scheme-less value.
-const ensureHttps = (url: string) => (/^https?:\/\//i.test(url) ? url : `https://${url}`)
 
 // Webhook endpoint - receives lifecycle events from the Notification Server (NS).
 // See backend/NS_WEBHOOK.md for the contract.
@@ -141,10 +125,10 @@ app.post('/webhook', async (c) => {
   switch (payload.event) {
     case NS_WEBHOOK_EVENTS.MINIAPP_ADDED:
     case NS_WEBHOOK_EVENTS.NOTIFICATIONS_ENABLED: {
-      const url = ensureHttps(payload.notificationDetails.url)
-      tokensByAddress.set(userAddress, { url, token: payload.notificationDetails.token })
+      const { token } = payload.notificationDetails
+      tokensByAddress.set(userAddress, token)
       console.log(
-        `${LOG_PREFIX} [webhook] ${payload.event} userAddress=${userAddress} url=${url} token=${tokenPreview(payload.notificationDetails.token)}...`,
+        `${LOG_PREFIX} [webhook] ${payload.event} userAddress=${userAddress} token=${tokenPreview(token)}`,
       )
       logTokenStore(`after ${payload.event}`)
       break
@@ -170,8 +154,8 @@ app.post('/api/mint', async (c) => {
     return c.json({ error: 'Missing userAddress' }, 400)
   }
 
-  const details = tokensByAddress.get(normalizedUserAddress)
-  if (!details) {
+  const token = tokensByAddress.get(normalizedUserAddress)
+  if (!token) {
     console.log(`${LOG_PREFIX} [mint] no notification token found for address ${normalizedUserAddress}`)
     return c.json({ error: 'No notification registered for this address' }, 404)
   }
@@ -185,10 +169,10 @@ app.post('/api/mint', async (c) => {
       title: 'Mustard',
       body: 'New Mustard NFT was minted!',
       targetUrl: FRONTEND_URL,
-      tokens: [details.token],
+      tokens: [token],
     }
-    console.log(`${LOG_PREFIX} [mint] sending immediate notification to`, details.url)
-    const result = await sendNotification(details.url, immediatePayload)
+    console.log(`${LOG_PREFIX} [mint] sending immediate notification to ${NS_SEND_NOTIFICATION_URL}`)
+    const result = await sendNotification(immediatePayload)
     console.log(`${LOG_PREFIX} [mint] immediate notification sent:`, result)
   } catch (e) {
     console.error(`${LOG_PREFIX} [mint] failed to send immediate notification:`, e)
@@ -201,13 +185,12 @@ app.post('/api/mint', async (c) => {
   scheduledNotifications.push({
     id: notificationId,
     scheduledFor,
-    url: details.url,
     notification: {
       notificationId,
       title: 'Mustard',
       body: 'You can mint NFT again!',
       targetUrl: FRONTEND_URL,
-      tokens: [details.token],
+      tokens: [token],
     },
   })
 
@@ -229,8 +212,8 @@ app.post('/api/test-notification', async (c) => {
     return c.json({ error: 'Missing userAddress' }, 400)
   }
 
-  const details = tokensByAddress.get(normalizedUserAddress)
-  if (!details) {
+  const token = tokensByAddress.get(normalizedUserAddress)
+  if (!token) {
     console.log(`${LOG_PREFIX} [test] no notification token found for address ${normalizedUserAddress}`)
     return c.json({ error: 'No notification registered for this address' }, 404)
   }
@@ -244,10 +227,10 @@ app.post('/api/test-notification', async (c) => {
       title: 'Mustard',
       body: notificationBody,
       targetUrl: FRONTEND_URL,
-      tokens: [details.token],
+      tokens: [token],
     }
-    console.log(`${LOG_PREFIX} [test] sending test notification to ${details.url}`)
-    const result = await sendNotification(details.url, payload)
+    console.log(`${LOG_PREFIX} [test] sending test notification to ${NS_SEND_NOTIFICATION_URL}`)
+    const result = await sendNotification(payload)
     console.log(`${LOG_PREFIX} [test] notification sent:`, result)
     return c.json({ success: true })
   } catch (e) {
@@ -264,14 +247,11 @@ app.get('/api/notification-status', (c) => {
   if (!normalizedUserAddress) {
     return c.json({ error: 'Missing userAddress query param' }, 400)
   }
-  const enabled = tokensByAddress.has(normalizedUserAddress)
+  const token = tokensByAddress.get(normalizedUserAddress)
+  const enabled = token !== undefined
   console.log(`${LOG_PREFIX} [status] userAddress=${normalizedUserAddress}, enabled=${enabled}`)
-  if (enabled) {
-    const details = tokensByAddress.get(normalizedUserAddress)
-    if (details) {
-      console.log(`${LOG_PREFIX} [status] token preview for ${normalizedUserAddress}: ${tokenPreview(details.token)}...`)
-      console.log(`${LOG_PREFIX} [status] notification URL for ${normalizedUserAddress}: ${details.url}`)
-    }
+  if (token) {
+    console.log(`${LOG_PREFIX} [status] token preview for ${normalizedUserAddress}: ${tokenPreview(token)}`)
   } else {
     logTokenStore('status lookup miss')
   }
@@ -297,11 +277,11 @@ setInterval(async () => {
   }
 
   for (const item of due) {
-    console.log(`${LOG_PREFIX} [scheduler] sending to ${item.url}`)
+    console.log(`${LOG_PREFIX} [scheduler] sending to ${NS_SEND_NOTIFICATION_URL}`)
     console.log(`${LOG_PREFIX} [scheduler] payload: ${JSON.stringify(item.notification)}`)
 
     try {
-      const result = await sendNotification(item.url, item.notification)
+      const result = await sendNotification(item.notification)
       console.log(`${LOG_PREFIX} [scheduler] SUCCESS sent notification: ${item.id}`)
       console.log(`${LOG_PREFIX} [scheduler] response: ${result}`)
     } catch (e) {

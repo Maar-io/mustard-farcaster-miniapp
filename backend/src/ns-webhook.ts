@@ -12,6 +12,11 @@ if (!NS_BASE_URL) {
 
 const JWKS = createRemoteJWKSet(new URL(`${NS_BASE_URL}/.well-known/jwks.json`))
 
+// Send-notification endpoint per NS swagger (POST {NS_BASE_URL}/api/v1/notification).
+// NS sends a `notificationDetails.url` field in webhooks but it's malformed
+// (missing scheme + /api/v1 prefix), so we derive the URL from NS_BASE_URL.
+export const NS_SEND_NOTIFICATION_URL = `${NS_BASE_URL}/api/v1/notification`
+
 export const NS_WEBHOOK_EVENTS = {
   MINIAPP_ADDED: 'miniapp_added',
   MINIAPP_REMOVED: 'miniapp_removed',
