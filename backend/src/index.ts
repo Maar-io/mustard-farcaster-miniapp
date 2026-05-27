@@ -166,7 +166,7 @@ app.post('/api/mint', async (c) => {
   try {
     const immediatePayload = {
       notificationId: `mustard-minted-${now}`,
-      title: 'Mustard',
+      title: 'Test mint notification',
       body: 'New Mustard NFT was minted!',
       targetUrl: FRONTEND_URL,
       tokens: [token],
@@ -187,7 +187,7 @@ app.post('/api/mint', async (c) => {
     scheduledFor,
     notification: {
       notificationId,
-      title: 'Mustard',
+      title: 'Test scheduled notification',
       body: 'You can mint NFT again!',
       targetUrl: FRONTEND_URL,
       tokens: [token],
@@ -224,7 +224,7 @@ app.post('/api/test-notification', async (c) => {
 
     const payload = {
       notificationId: `mustard-test-${Date.now()}`,
-      title: 'Mustard',
+      title: 'Test notification',
       body: notificationBody,
       targetUrl: FRONTEND_URL,
       tokens: [token],
