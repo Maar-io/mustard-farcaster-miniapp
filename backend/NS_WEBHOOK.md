@@ -110,21 +110,34 @@ async function handleNsWebhook(rawBody: string, headers: Record<string, string |
 }
 ```
 
-Hono example (matches this repo):
+Hono example (matches this repo). Each verification step has its own try/catch so signature failures return `401` (auth) while malformed-body failures return `400` (bad request) — useful when reading NS retry logs:
 
 ```ts
 app.post('/webhook', async (c) => {
   const rawBody = await c.req.text()
+
   try {
     await verifyWebhookSignature(rawBody, c.req.header('x-webhook-signature'))
-    const payload = parseWebhookPayload(rawBody)
-    const userAddress = await decodeUserAddress(c.req.header('x-user-address'))
-    // ...handle payload...
-    return c.json({ success: true })
   } catch (err) {
-    console.error('NS webhook error:', err)
-    return c.json({ success: false }, 400)
+    return c.json({ success: false, error: 'invalid signature' }, 401)
   }
+
+  let payload: ReturnType<typeof parseWebhookPayload>
+  try {
+    payload = parseWebhookPayload(rawBody)
+  } catch (err) {
+    return c.json({ success: false, error: 'invalid payload' }, 400)
+  }
+
+  let userAddress: string
+  try {
+    userAddress = await decodeUserAddress(c.req.header('x-user-address'))
+  } catch (err) {
+    return c.json({ success: false, error: 'invalid x-user-address' }, 400)
+  }
+
+  // ...handle payload...
+  return c.json({ success: true })
 })
 ```
 
@@ -188,7 +201,7 @@ type NsWebhookPayload =
 ## 6. Response contract
 
 - **200**: webhook accepted. Use any `2xx` body (most teams use `{ "success": true }`).
-- **non-200**: NS will retry per its retry policy. Use `400` for permanent failures (bad signature, malformed body) so they don't loop forever once the policy is honored — but **confirm the retry semantics with the NS team** before depending on this.
+- **non-200**: NS will retry per its retry policy. Use `401` for signature failures and `400` for malformed-body / bad header failures, so permanent errors don't loop forever once the policy is honored — but **confirm the retry semantics with the NS team** before depending on this.
 
 ---
 
