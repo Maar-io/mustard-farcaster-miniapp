@@ -21,6 +21,7 @@ services:
       # host.docker.internal lets containers reach services on the host machine
       - FARCASTER_HOST_URL=http://host.docker.internal:3200
       - FRONTEND_URL=${PUBLIC_HOST}
+      - NS_JWKS_URL=${NS_JWKS_URL}
     # Required for host.docker.internal on macOS/Windows (built-in)
     # For Linux, uncomment:
     # extra_hosts:

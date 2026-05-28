@@ -61,7 +61,6 @@ export function MintGallery({
     }
   });
 
-  // Sync: when on-chain balance loads, use the higher value
   useEffect(() => {
     if (balance !== undefined) {
       const onChain = Number(balance);
@@ -97,7 +96,6 @@ export function MintGallery({
   });
   const [timeRemaining, setTimeRemaining] = useState<number>(0);
 
-  // Cooldown timer
   useEffect(() => {
     if (!lastMintTime) return;
     const interval = setInterval(() => {
@@ -119,7 +117,6 @@ export function MintGallery({
     });
   };
 
-  // On successful mint: update count, save time, call callback
   useEffect(() => {
     if (isSuccess) {
       setLocalCount((prev) => {
@@ -151,7 +148,6 @@ export function MintGallery({
 
       {error && <div style={{ color: "red", fontSize: "12px", marginTop: "8px" }}>Error: {error.message}</div>}
 
-      {/* NFT Grid - 10 placeholders, 5 per row */}
       <div
         style={{
           display: "grid",
