@@ -1,16 +1,13 @@
 // NS (Notification Server) webhook helper.
 //
 // Drop-in module for any miniapp backend that needs to receive NS subscription
-// webhooks. Framework-agnostic — depends only on `jose`. See ../NS_WEBHOOK.md.
-
-import { compactVerify, createRemoteJWKSet } from 'jose'
-
-const NS_JWKS_URL = process.env.NS_JWKS_URL
-if (!NS_JWKS_URL) {
-  throw new Error('NS_JWKS_URL env var is required for ns-webhook.ts (e.g. https://ns.example.com/.well-known/jwks.json)')
-}
-
-const JWKS = createRemoteJWKSet(new URL(NS_JWKS_URL))
+// webhooks. See ../NS_WEBHOOK.md.
+//
+// PHASE 1: raw payload handling only — signature verification is intentionally
+// not performed yet (it will be added in Phase 2 using the Svix Ed25519 scheme).
+// NS now signs webhooks with Svix-style headers (svix-id, svix-timestamp,
+// svix-signature) and selects the JWKS key via x-key-id; the user address has
+// moved from the removed `x-user-address` header into the JSON body.
 
 export const NS_WEBHOOK_EVENTS = {
   MINIAPP_ADDED: 'miniapp_added',
@@ -24,11 +21,19 @@ export type NotificationDetails = {
   token: string
 }
 
+// Every event now carries `senderId` (always present) and an optional
+// `userAddress` (omitted when NS could not resolve the address; absent on some
+// events). `notificationDetails` is only present on add/enable events.
+type WebhookCommon = {
+  senderId: string
+  userAddress?: string
+}
+
 export type NsWebhookPayload =
-  | { event: typeof NS_WEBHOOK_EVENTS.MINIAPP_ADDED; notificationDetails: NotificationDetails }
-  | { event: typeof NS_WEBHOOK_EVENTS.NOTIFICATIONS_ENABLED; notificationDetails: NotificationDetails }
-  | { event: typeof NS_WEBHOOK_EVENTS.MINIAPP_REMOVED }
-  | { event: typeof NS_WEBHOOK_EVENTS.NOTIFICATIONS_DISABLED }
+  | (WebhookCommon & { event: typeof NS_WEBHOOK_EVENTS.MINIAPP_ADDED; notificationDetails: NotificationDetails })
+  | (WebhookCommon & { event: typeof NS_WEBHOOK_EVENTS.NOTIFICATIONS_ENABLED; notificationDetails: NotificationDetails })
+  | (WebhookCommon & { event: typeof NS_WEBHOOK_EVENTS.MINIAPP_REMOVED })
+  | (WebhookCommon & { event: typeof NS_WEBHOOK_EVENTS.NOTIFICATIONS_DISABLED })
 
 export function parseWebhookPayload(rawBody: string): NsWebhookPayload {
   let parsed: unknown
@@ -42,15 +47,28 @@ export function parseWebhookPayload(rawBody: string): NsWebhookPayload {
     throw new Error('ns-webhook: body is not a JSON object')
   }
 
-  const envelope = parsed as { event?: unknown; notificationDetails?: unknown }
+  const envelope = parsed as {
+    event?: unknown
+    senderId?: unknown
+    userAddress?: unknown
+    notificationDetails?: unknown
+  }
   const event = envelope.event
+
+  if (typeof envelope.senderId !== 'string') {
+    throw new Error('ns-webhook: senderId is not a string')
+  }
+  if (envelope.userAddress !== undefined && typeof envelope.userAddress !== 'string') {
+    throw new Error('ns-webhook: userAddress is present but not a string')
+  }
+  const common: WebhookCommon = { senderId: envelope.senderId, userAddress: envelope.userAddress }
 
   if (event === NS_WEBHOOK_EVENTS.MINIAPP_ADDED || event === NS_WEBHOOK_EVENTS.NOTIFICATIONS_ENABLED) {
     const details = assertNotificationDetails(envelope.notificationDetails)
-    return { event, notificationDetails: details }
+    return { ...common, event, notificationDetails: details }
   }
   if (event === NS_WEBHOOK_EVENTS.MINIAPP_REMOVED || event === NS_WEBHOOK_EVENTS.NOTIFICATIONS_DISABLED) {
-    return { event }
+    return { ...common, event }
   }
 
   throw new Error(`ns-webhook: unknown event "${String(event)}"`)
@@ -64,38 +82,4 @@ function assertNotificationDetails(value: unknown): NotificationDetails {
   if (typeof d.url !== 'string') throw new Error('ns-webhook: notificationDetails.url is not a string')
   if (typeof d.token !== 'string') throw new Error('ns-webhook: notificationDetails.token is not a string')
   return { url: d.url, token: d.token }
-}
-
-// Per the NS team, `x-user-address` is a JWS Compact Serialization (signed with
-// the same key as X-Webhook-Signature) whose payload IS the raw address string
-// — not a JWT with claims.
-export async function decodeUserAddress(headerValue: string | undefined): Promise<string> {
-  if (!headerValue) {
-    throw new Error('ns-webhook: missing x-user-address header')
-  }
-
-  const { payload } = await compactVerify(headerValue, JWKS)
-  const address = new TextDecoder().decode(payload).trim()
-  if (!address) {
-    throw new Error('ns-webhook: x-user-address signed payload is empty')
-  }
-  return address.toLowerCase()
-}
-
-// Per the NS team, `X-Webhook-Signature` is a JWS Compact Serialization whose
-// signed payload is the marshaled JSON request body verbatim. The body must be
-// read as raw bytes/string — reserializing parsed JSON will break byte equality.
-export async function verifyWebhookSignature(
-  rawBody: string,
-  signatureHeader: string | undefined,
-): Promise<void> {
-  if (!signatureHeader) {
-    throw new Error('ns-webhook: missing X-Webhook-Signature header')
-  }
-
-  const { payload } = await compactVerify(signatureHeader, JWKS)
-  const signedBody = new TextDecoder().decode(payload)
-  if (signedBody !== rawBody) {
-    throw new Error('ns-webhook: X-Webhook-Signature payload does not match request body')
-  }
 }

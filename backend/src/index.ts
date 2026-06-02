@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { NS_WEBHOOK_EVENTS, decodeUserAddress, parseWebhookPayload, verifyWebhookSignature } from './ns-webhook.js'
+import { NS_WEBHOOK_EVENTS, parseWebhookPayload } from './ns-webhook.js'
 
 const app = new Hono()
 app.use('*', cors())
@@ -116,12 +116,9 @@ app.post('/webhook', async (c) => {
   console.log(`${LOG_PREFIX} [webhook] headers=${JSON.stringify(Object.fromEntries(c.req.raw.headers.entries()))}`)
   console.log(`${LOG_PREFIX} [webhook] raw body=${rawBody}`)
 
-  try {
-    await verifyWebhookSignature(rawBody, c.req.header('x-webhook-signature'))
-  } catch (err) {
-    console.error(`${LOG_PREFIX} [webhook] signature verification failed:`, err)
-    return c.json({ success: false, error: 'invalid signature' }, 401)
-  }
+  // PHASE 1: signature verification is intentionally skipped — the raw payload
+  // is trusted for now. Svix Ed25519 verification (svix-id / svix-timestamp /
+  // svix-signature headers + JWKS keyed by x-key-id) lands in Phase 2.
 
   let payload: ReturnType<typeof parseWebhookPayload>
   try {
@@ -131,29 +128,31 @@ app.post('/webhook', async (c) => {
     return c.json({ success: false, error: 'invalid payload' }, 400)
   }
 
-  let userAddress: string
-  try {
-    userAddress = await decodeUserAddress(c.req.header('x-user-address'))
-  } catch (err) {
-    console.error(`${LOG_PREFIX} [webhook] failed to decode x-user-address:`, err)
-    return c.json({ success: false, error: 'invalid x-user-address' }, 400)
-  }
+  // The user address now travels in the JSON body (the `x-user-address` header
+  // was removed). It may be absent if NS could not resolve it.
+  const userAddress = payload.userAddress ? normalizeUserAddress(payload.userAddress) : undefined
 
   switch (payload.event) {
     case NS_WEBHOOK_EVENTS.MINIAPP_ADDED:
     case NS_WEBHOOK_EVENTS.NOTIFICATIONS_ENABLED: {
+      if (!userAddress) {
+        console.error(`${LOG_PREFIX} [webhook] ${payload.event} missing userAddress in payload, cannot store token`)
+        return c.json({ success: false, error: 'missing userAddress' }, 400)
+      }
       const { token, url } = payload.notificationDetails
       tokensByAddress.set(userAddress, { token, url })
       console.log(
-        `${LOG_PREFIX} [webhook] ${payload.event} userAddress=${userAddress} token=${tokenPreview(token)} url=${url}`,
+        `${LOG_PREFIX} [webhook] ${payload.event} senderId=${payload.senderId} userAddress=${userAddress} token=${tokenPreview(token)} url=${url}`,
       )
       logTokenStore(`after ${payload.event}`)
       break
     }
     case NS_WEBHOOK_EVENTS.MINIAPP_REMOVED:
     case NS_WEBHOOK_EVENTS.NOTIFICATIONS_DISABLED:
-      tokensByAddress.delete(userAddress)
-      console.log(`${LOG_PREFIX} [webhook] ${payload.event} userAddress=${userAddress}`)
+      if (userAddress) {
+        tokensByAddress.delete(userAddress)
+      }
+      console.log(`${LOG_PREFIX} [webhook] ${payload.event} senderId=${payload.senderId} userAddress=${userAddress ?? 'MISSING'}`)
       logTokenStore(`after ${payload.event}`)
       break
   }
