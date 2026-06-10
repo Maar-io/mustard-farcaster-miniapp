@@ -2,12 +2,14 @@ import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { NS_WEBHOOK_EVENTS, parseWebhookPayload } from './ns-webhook.js'
+import { verifyWebhookSignature } from './ns-webhook-verify.js'
 
 const app = new Hono()
 app.use('*', cors())
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5174'
 const PORT = Number(process.env.PORT || 3300)
+const NS_JWKS_URL = process.env.NS_JWKS_URL
 const LOG_PREFIX = '[MUSTARD]'
 
 const tokensByAddress = new Map<string, { token: string; url: string }>()
@@ -116,9 +118,30 @@ app.post('/webhook', async (c) => {
   console.log(`${LOG_PREFIX} [webhook] headers=${JSON.stringify(Object.fromEntries(c.req.raw.headers.entries()))}`)
   console.log(`${LOG_PREFIX} [webhook] raw body=${rawBody}`)
 
-  // PHASE 1: signature verification is intentionally skipped — the raw payload
-  // is trusted for now. Svix Ed25519 verification (svix-id / svix-timestamp /
-  // svix-signature headers + JWKS keyed by x-key-id) lands in Phase 2.
+  // Verify the Svix Ed25519 signature before trusting the body. Runs first, so
+  // forged/tampered webhooks never reach the parser. Replay protection
+  // (svix-timestamp freshness) is intentionally not enforced — see ns-webhook-verify.ts.
+  if (!NS_JWKS_URL) {
+    console.error(`${LOG_PREFIX} [webhook] NS_JWKS_URL not configured`)
+    return c.json({ success: false, error: 'server misconfigured' }, 500)
+  }
+  const svixId = c.req.header('svix-id')
+  const svixTimestamp = c.req.header('svix-timestamp')
+  const svixSignature = c.req.header('svix-signature')
+  const keyId = c.req.header('x-key-id')
+  // Preview the signature so we trace which entry/key arrived without logging the full sig.
+  const svixSignaturePreview = svixSignature ? `${svixSignature.slice(0, 12)}...` : 'MISSING'
+  console.log(
+    `${LOG_PREFIX} [webhook] verifying signature: svix-id=${svixId ?? 'MISSING'} svix-timestamp=${svixTimestamp ?? 'MISSING'} x-key-id=${keyId ?? 'MISSING'} svix-signature=${svixSignaturePreview} jwksUrl=${NS_JWKS_URL}`,
+  )
+  const verifyStartedAt = Date.now()
+  try {
+    await verifyWebhookSignature(rawBody, { svixId, svixTimestamp, svixSignature, keyId }, { jwksUrl: NS_JWKS_URL })
+  } catch (err) {
+    console.error(`${LOG_PREFIX} [webhook] signature verification FAILED (${Date.now() - verifyStartedAt}ms):`, err)
+    return c.json({ success: false, error: 'invalid signature' }, 401)
+  }
+  console.log(`${LOG_PREFIX} [webhook] signature verification OK (${Date.now() - verifyStartedAt}ms) x-key-id=${keyId}`)
 
   let payload: ReturnType<typeof parseWebhookPayload>
   try {
@@ -131,6 +154,9 @@ app.post('/webhook', async (c) => {
   // The user address now travels in the JSON body (the `x-user-address` header
   // was removed). It may be absent if NS could not resolve it.
   const userAddress = payload.userAddress ? normalizeUserAddress(payload.userAddress) : undefined
+  console.log(
+    `${LOG_PREFIX} [webhook] parsed payload: event=${payload.event} senderId=${payload.senderId} userAddress=${userAddress ?? 'MISSING'}`,
+  )
 
   switch (payload.event) {
     case NS_WEBHOOK_EVENTS.MINIAPP_ADDED:
@@ -157,6 +183,7 @@ app.post('/webhook', async (c) => {
       break
   }
 
+  console.log(`${LOG_PREFIX} [webhook] ===== handled ${payload.event} OK (200) =====`)
   return c.json({ success: true })
 })
 

@@ -1,11 +1,23 @@
 # Phase 2 — Svix Ed25519 Webhook Signature Verification
 
-This document describes the **remaining** implementation work for the Mustard miniapp's
-NS (Notification Server) webhook handling. Phase 1 (raw payload handling, no signature
-check) is already done. Phase 2 adds proper signature verification.
+This document describes the Mustard miniapp's NS (Notification Server) webhook signature
+verification. Phase 1 (raw payload handling, no signature check) and Phase 2 (signature
+verification) are both done.
 
-> **Status:** planned / not yet implemented. Phase 1 is live in `backend/src/ns-webhook.ts`
-> and `backend/src/index.ts`.
+> **Status: IMPLEMENTED.** Verification lives in `backend/src/ns-webhook-verify.ts` (a
+> self-contained, env-free drop-in) and is enforced in `backend/src/index.ts` — webhooks that
+> fail verification get a `401`. Set `NS_JWKS_URL` to enable it. See
+> `backend/NOTIFICATIONS_README.md` for the reuse guide.
+>
+> **Two corrections** to the original design below were applied during implementation:
+>
+> 1. **`jose` v6 `importJWK` returns a WebCrypto `CryptoKey`, not a Node `KeyObject`.** The
+>    original `as KeyObject` cast would fail at runtime with `crypto.verify`. The shipped code
+>    narrows out the `Uint8Array` (symmetric-key) case and converts with `KeyObject.from()`.
+> 2. **Packaging/config:** verification was split into its own file `ns-webhook-verify.ts`
+>    (not folded into `ns-webhook.ts`) and is **env-free** — the caller passes `{ jwksUrl }`
+>    rather than the module reading `process.env.NS_JWKS_URL`. This keeps it a clean drop-in
+>    for other projects. (The snippets below predate this and show the env-reading version.)
 
 ---
 

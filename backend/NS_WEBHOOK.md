@@ -2,14 +2,13 @@
 
 This guide explains how to wire a miniapp backend to the **Notification Server (NS)** so it can receive miniapp lifecycle events (a user added / removed the miniapp, enabled / disabled notifications).
 
-It ships with a single drop-in helper file — `src/ns-webhook.ts` — that parses and runtime-narrows the webhook payload. Copy that file into your backend and you're done.
+It ships with two drop-in helper files — `src/ns-webhook.ts` (parses and runtime-narrows the webhook payload) and `src/ns-webhook-verify.ts` (verifies the Svix Ed25519 signature). Copy both into your backend, call `verifyWebhookSignature()` before `parseWebhookPayload()`, and you're done. For a step-by-step reuse guide see [`NOTIFICATIONS_README.md`](./NOTIFICATIONS_README.md).
 
-> **Status — two-phase rollout.** NS recently switched its webhook signing to the **Svix** scheme (Ed25519 over `svix-id`/`svix-timestamp`/`svix-signature` headers) and moved the user address out of a header and into the JSON body. This repo is being adapted in two phases:
+> **Status — signing scheme live.** NS signs every webhook with the **Svix** scheme (Ed25519 over `svix-id`/`svix-timestamp`/`svix-signature` headers) and carries the user address in the JSON body (the old `x-user-address` header was removed).
 >
-> - **Phase 1 (current):** payload shape updated; **signature verification is intentionally not performed**. The raw body is trusted. Use only in trusted/test environments.
-> - **Phase 2 (planned):** Svix Ed25519 signature verification against the NS JWKS (keyed by `x-key-id`).
+> Signature verification is **implemented** in `src/ns-webhook-verify.ts` and enforced in `src/index.ts` — webhooks failing verification get a `401`. Set `NS_JWKS_URL` to enable it.
 >
-> Sections below marked _(Phase 2)_ describe behavior that is documented but not yet wired in code.
+> **Persistence note:** Mustard stores tokens in an in-memory `Map` for demo simplicity. A real database is required for production — see [`NOTIFICATIONS_README.md`](./NOTIFICATIONS_README.md).
 
 ---
 
@@ -56,7 +55,7 @@ Respond with **HTTP 200** on success. Anything else makes NS retry (confirm the 
 
 ---
 
-## 2. Signature format _(Phase 2)_
+## 2. Signature format
 
 NS signs each webhook using the **Svix** scheme. Three headers carry the signature, plus `x-key-id` selects the key:
 
@@ -77,39 +76,41 @@ where `rawBody` is the exact bytes of the JSON request body. Verify by:
 2. Reconstructing `toSign` from the three values above (read the body as a **raw string** — re-serializing parsed JSON will not byte-match).
 3. Verifying the raw Ed25519 signature over `toSign` with that public key.
 
-> In **Phase 1** this verification is skipped entirely — the payload is trusted as-is.
+This is exactly what `src/ns-webhook-verify.ts`'s `verifyWebhookSignature()` does — it imports the JWKS key with `jose`'s `importJWK` and verifies with Node's built-in `crypto`. (Note: `jose` v6 `importJWK` returns a WebCrypto `CryptoKey`, which the helper converts via `KeyObject.from()` for `crypto.verify`.)
 
 What to ask the NS team:
 
-1. **`NS_JWKS_URL`** — the full URL of the NS JWKS endpoint (typically `https://<ns-host>/.well-known/jwks.json`). Needed for Phase 2 verification.
+1. **`NS_JWKS_URL`** — the full URL of the NS JWKS endpoint (typically `https://<ns-host>/.well-known/jwks.json`). Required for signature verification.
 2. **Retry policy** on non-2xx responses (so you can size your idempotency window).
 
 ---
 
 ## 3. Install
 
-Copy `src/ns-webhook.ts` from this repo into your backend's source tree.
+Copy `src/ns-webhook.ts` and `src/ns-webhook-verify.ts` from this repo into your backend's source tree.
 
-- **Phase 1:** no dependencies — the helper is pure TypeScript (JSON parse + narrow).
-- **Phase 2:** Ed25519 verification will use Node's built-in `crypto` plus `jose` (`importJWK`) for JWK import; set `NS_JWKS_URL`.
+- `ns-webhook.ts` — pure TypeScript (JSON parse + narrow), no dependencies.
+- `ns-webhook-verify.ts` — Ed25519 verification using Node's built-in `crypto` plus `jose` (`importJWK`) for JWK import. The module is env-free; pass `{ jwksUrl }` in.
 
 ```bash
-NS_JWKS_URL=https://ns.example.com/.well-known/jwks.json   # ask the NS team; required for Phase 2
+NS_JWKS_URL=https://ns.example.com/.well-known/jwks.json   # ask the NS team; required for signature verification
 ```
 
 ---
 
 ## 4. Use
 
-Framework-agnostic example (Phase 1) — adapt the request/response wiring to your framework:
+Framework-agnostic example — adapt the request/response wiring to your framework:
 
 ```ts
 import { NS_WEBHOOK_EVENTS, parseWebhookPayload } from './ns-webhook.js'
+import { verifyWebhookSignature } from './ns-webhook-verify.js'
 
-async function handleNsWebhook(rawBody: string) {
-  // Phase 2: verify the Svix signature here first, reject if invalid.
+async function handleNsWebhook(rawBody: string, headers: SvixHeaders) {
+  // Verify the Svix signature first; throws (→ reject with 401) if invalid.
+  await verifyWebhookSignature(rawBody, headers, { jwksUrl: process.env.NS_JWKS_URL! })
 
-  // Parse & narrow the body to a typed union.
+  // Parse & narrow the (now trusted) body to a typed union.
   const payload = parseWebhookPayload(rawBody)
 
   // The user address is now in the body (no longer a header). May be absent.
@@ -130,13 +131,27 @@ async function handleNsWebhook(rawBody: string) {
 }
 ```
 
-Hono example (matches this repo). Phase 1 returns `400` on malformed body; Phase 2 will add a `401` signature gate before parsing:
+Hono example (matches this repo). A `401` signature gate runs before parsing; malformed bodies return `400`:
 
 ```ts
 app.post('/webhook', async (c) => {
   const rawBody = await c.req.text()
 
-  // Phase 2: verify svix-id / svix-timestamp / svix-signature (+ x-key-id) here → 401 on failure.
+  // Verify svix-id / svix-timestamp / svix-signature (+ x-key-id) → 401 on failure.
+  try {
+    await verifyWebhookSignature(
+      rawBody,
+      {
+        svixId: c.req.header('svix-id'),
+        svixTimestamp: c.req.header('svix-timestamp'),
+        svixSignature: c.req.header('svix-signature'),
+        keyId: c.req.header('x-key-id'),
+      },
+      { jwksUrl: process.env.NS_JWKS_URL! },
+    )
+  } catch (err) {
+    return c.json({ success: false, error: 'invalid signature' }, 401)
+  }
 
   let payload: ReturnType<typeof parseWebhookPayload>
   try {
@@ -151,7 +166,7 @@ app.post('/webhook', async (c) => {
 })
 ```
 
-> **Important**: read the body as a **raw string**, not parsed JSON. Phase 2 verification needs the exact bytes that were signed — reserializing parsed JSON will not byte-match.
+> **Important**: read the body as a **raw string**, not parsed JSON. Verification needs the exact bytes that were signed — reserializing parsed JSON will not byte-match.
 
 ---
 
@@ -167,7 +182,11 @@ Parses the JSON body and narrows it to a typed discriminated union. Throws on:
 - a present-but-non-string `userAddress`
 - missing or wrong-typed fields in `notificationDetails` (for `miniapp_added` / `notifications_enabled`)
 
-> Signature verification helpers (`verifyWebhookSignature`, the former `decodeUserAddress`) were removed in Phase 1 and will return in Phase 2 as Svix Ed25519 verification. The `x-user-address` header decoder is gone for good — the address is in the body now.
+### `verifyWebhookSignature(rawBody, headers, { jwksUrl }): Promise<void>`
+
+Lives in `ns-webhook-verify.ts`. Verifies the Svix Ed25519 signature; **call it before `parseWebhookPayload`**. Resolves on success, throws on any failure (missing headers, unknown `kid`, JWKS fetch error, or bad signature) — map a throw to a `401`. Reads no env vars; pass `jwksUrl` in.
+
+> The former `x-user-address` header decoder is gone for good — the address is in the body now (`payload.userAddress`).
 
 ### Types & constants
 
@@ -191,7 +210,7 @@ type NsWebhookPayload =
 ## 6. Response contract
 
 - **200**: webhook accepted. Use any `2xx` body (most teams use `{ "success": true }`).
-- **non-200**: NS will retry per its retry policy. Use `400` for malformed-body failures, and (Phase 2) `401` for signature failures, so permanent errors don't loop forever once the policy is honored — but **confirm the retry semantics with the NS team** before depending on this.
+- **non-200**: NS will retry per its retry policy. Use `400` for malformed-body failures and `401` for signature failures, so permanent errors don't loop forever once the policy is honored — but **confirm the retry semantics with the NS team** before depending on this.
 
 ---
 
@@ -202,7 +221,8 @@ type NsWebhookPayload =
 | `senderId is not a string` | Body is from the old (pre-Svix) NS, or not an NS webhook at all. Confirm the NS instance sends the new payload shape. |
 | `missing userAddress` on add/enable | NS could not resolve the user's smart-account address. Check the NS → backend address lookup; the field is `omitzero` so it may be absent. |
 | Tokens received but pushes never arrive | Unrelated to this webhook — check that you're calling the NS send endpoint (`notificationDetails.url`) correctly with the token you stored. |
-| _(Phase 2)_ signature never verifies | Body was parsed/re-serialized before verification (read it raw), wrong `x-key-id` → key mapping, or base64url vs base64-standard decoding of the signature. |
+| signature never verifies | Body was parsed/re-serialized before verification (read it raw), wrong `x-key-id` → key mapping, or base64url vs base64-standard decoding of the signature. |
+| `NS_JWKS_URL env var is required` / `server misconfigured` 500 | `NS_JWKS_URL` is unset. Set it to the NS JWKS endpoint. |
 
 ---
 
@@ -211,4 +231,4 @@ type NsWebhookPayload =
 - **Sending notifications.** This guide is webhook-side only (NS → you). The send side (you → NS to deliver a push) posts to `notificationDetails.url` — recently renamed to `/miniapp/send-notification` — with its own request contract; ask the NS team.
 - **Idempotency / dedupe.** NS now sends a stable `svix-id` per message — dedupe on that if you care about retries. `(userAddress, event, token)` also works.
 - **Rate limits.** NS may rate-limit your send side; webhook receive side typically isn't rate-limited.
-- **Local testing without NS.** Stand up a local JWKS server and sign test webhooks with a matching Ed25519 private key (mirror the `${id}.${ts}.${body}` signing string). Needed for Phase 2 testing; out of scope for this guide.
+- **Local testing without NS.** Stand up a local JWKS server and sign test webhooks with a matching Ed25519 private key (mirror the `${id}.${ts}.${body}` signing string, base64-standard encode the signature). Useful for exercising `verifyWebhookSignature` without a live NS; otherwise out of scope for this guide.

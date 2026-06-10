@@ -1,13 +1,15 @@
-// NS (Notification Server) webhook helper.
+// NS (Notification Server) webhook helper — payload parsing & narrowing.
 //
 // Drop-in module for any miniapp backend that needs to receive NS subscription
-// webhooks. See ../NS_WEBHOOK.md.
+// webhooks. See ../NS_WEBHOOK.md and ../NOTIFICATIONS_README.md.
 //
-// PHASE 1: raw payload handling only — signature verification is intentionally
-// not performed yet (it will be added in Phase 2 using the Svix Ed25519 scheme).
-// NS now signs webhooks with Svix-style headers (svix-id, svix-timestamp,
-// svix-signature) and selects the JWKS key via x-key-id; the user address has
-// moved from the removed `x-user-address` header into the JSON body.
+// This file is parse-only. Signature verification lives in the companion
+// drop-in `ns-webhook-verify.ts` (Svix Ed25519 over svix-id / svix-timestamp /
+// svix-signature headers + JWKS keyed by x-key-id). Copy both files together
+// and call verifyWebhookSignature() before parseWebhookPayload().
+//
+// The user address travels in the JSON body (`userAddress`) — the old
+// `x-user-address` header was removed.
 
 export const NS_WEBHOOK_EVENTS = {
   MINIAPP_ADDED: 'miniapp_added',
