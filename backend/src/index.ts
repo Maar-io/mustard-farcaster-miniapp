@@ -115,8 +115,6 @@ app.post('/webhook', async (c) => {
   const rawBody = await c.req.text()
   console.log(`${LOG_PREFIX} [webhook] ===== incoming request =====`)
   console.log(`${LOG_PREFIX} [webhook] method=${c.req.method} url=${c.req.url}`)
-  console.log(`${LOG_PREFIX} [webhook] headers=${JSON.stringify(Object.fromEntries(c.req.raw.headers.entries()))}`)
-  console.log(`${LOG_PREFIX} [webhook] raw body=${rawBody}`)
 
   // Verify the Svix Ed25519 signature before trusting the body. Runs first, so
   // forged/tampered webhooks never reach the parser. Replay protection

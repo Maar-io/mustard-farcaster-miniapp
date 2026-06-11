@@ -34,6 +34,9 @@ const fetchJwks = async (jwksUrl: string): Promise<Jwks> => {
   const res = await fetch(jwksUrl)
   if (!res.ok) throw new Error(`ns-webhook-verify: failed to fetch JWKS: HTTP ${res.status}`)
   const jwks = (await res.json()) as Jwks
+  if (!Array.isArray(jwks?.keys)) {
+    throw new Error('ns-webhook-verify: JWKS response has no "keys" array')
+  }
   console.log(`[ns-webhook-verify] JWKS loaded: ${jwks.keys.length} key(s), kids=${jwks.keys.map((k) => k.kid).join(',')}`)
   return jwks
 }
