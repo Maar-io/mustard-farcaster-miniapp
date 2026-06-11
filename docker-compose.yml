@@ -7,6 +7,8 @@ services:
       - "5174:5174"
     environment:
       - FRONTEND_PORT=5174
+      # Substituted into farcaster.json at container start (see public-host.sh)
+      - PUBLIC_HOST=${PUBLIC_HOST}
     depends_on:
       - backend
 
@@ -27,12 +29,14 @@ services:
     # extra_hosts:
     #   - "host.docker.internal:host-gateway"
 
-  ngrok:
-    image: ngrok/ngrok:latest
-    command: http frontend:5174 --url=https://${NGROK_DOMAIN}
-    environment:
-      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
-    depends_on:
-      - frontend
+  # Cloudflare quick tunnel — exposes the frontend publicly on a random
+  # *.trycloudflare.com URL. The backend is reached through the same URL
+  # (nginx proxies /webhook and /api/* to backend:3300), so one tunnel suffices.
+  # No depends_on: dev-up.sh starts this first to learn the URL, then boots
+  # frontend/backend with PUBLIC_HOST set. Use ./dev-up.sh, not docker compose up.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate --metrics 0.0.0.0:4040 --url http://frontend:5174
     ports:
+      # Metrics endpoint; GET /quicktunnel returns the assigned hostname
       - "4040:4040"
