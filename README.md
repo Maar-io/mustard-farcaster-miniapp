@@ -17,25 +17,26 @@ This starts:
 
 - **Frontend** at http://localhost:5174 (nginx serving the built Vite app)
 - **Backend** at http://localhost:3300 (Hono API)
-- **cloudflared** quick tunnel exposing the frontend publicly on a random
-  `*.trycloudflare.com` URL (printed by the script)
+- **cloudflared** named tunnel exposing the frontend on a stable public
+  hostname (e.g. https://mustard.loudgoat.xyz)
 
 One tunnel is enough: nginx proxies `/webhook`, `/api/*`, and `/health` to the
 backend, so the backend is reachable through the same public URL.
 
-The script reads the tunnel URL from cloudflared's metrics endpoint
-(http://localhost:4040/quicktunnel), writes it to `.env` as `PUBLIC_HOST`, and
-then boots frontend + backend. `PUBLIC_HOST` is substituted into
-`/.well-known/farcaster.json` at container start, so no image rebuild is needed
-when the URL changes.
+`PUBLIC_HOST` must be set in `.env` to the tunnel's public hostname; it is
+substituted into `/.well-known/farcaster.json` at container start, so no image
+rebuild is needed when it changes.
 
-**The URL rotates whenever the cloudflared container restarts.** Re-run
-`./dev-up.sh` afterwards and re-add the miniapp in the Farcaster host.
-Restarting just frontend/backend (`docker compose up -d --build frontend backend`)
-keeps the tunnel — and the URL — alive.
+Tunnel routing (public hostname -> `http://frontend:5174`) is configured once in
+the Cloudflare dashboard: **Networks > Connectors > _tunnel_ > Published
+application routes**. The hostname is stable across restarts, so the miniapp
+only needs to be registered in the Farcaster host once.
 
-For a stable hostname, switch to a [named tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-remote-tunnel/)
-once a domain is added to Cloudflare (free plan is sufficient).
+> **One connector only.** The docker-compose `cloudflared` service is the sole
+> connector for this tunnel. Do NOT also run `cloudflared` on the host (e.g.
+> `cloudflared tunnel run --token …` or `cloudflared service install`) with the
+> same token — two connectors on one named tunnel conflict and cause Cloudflare
+> origin errors (1016).
 
 The backend reaches services on the host machine via `host.docker.internal`
 (works out of the box on macOS/Windows). On Linux, uncomment the `extra_hosts`
@@ -72,4 +73,4 @@ host integration requires the Docker + tunnel setup.
 - App: http://localhost:5174
 - Farcaster manifest: http://localhost:5174/.well-known/farcaster.json
 - Backend API: http://localhost:3300
-- Tunnel URL (JSON): http://localhost:4040/quicktunnel
+- Tunnel connector metrics: http://localhost:4040/metrics
