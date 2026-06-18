@@ -7,6 +7,8 @@ services:
       - "5174:5174"
     environment:
       - FRONTEND_PORT=5174
+      # Substituted into farcaster.json at container start (see public-host.sh)
+      - PUBLIC_HOST=${PUBLIC_HOST}
     depends_on:
       - backend
 
@@ -27,12 +29,17 @@ services:
     # extra_hosts:
     #   - "host.docker.internal:host-gateway"
 
-  ngrok:
-    image: ngrok/ngrok:latest
-    command: http frontend:5174 --url=https://${NGROK_DOMAIN}
-    environment:
-      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
-    depends_on:
-      - frontend
+  # Cloudflare named tunnel — exposes the frontend on a stable public hostname
+  # (https://mustard.loudgoat.xyz). Routing is configured in the Cloudflare
+  # dashboard (Networks > Connectors > mustard > Published application routes):
+  # mustard.loudgoat.xyz -> http://frontend:5174. The backend is reached through
+  # the same hostname (nginx proxies /webhook and /api/* to backend:3300), so one
+  # tunnel suffices. The connector resolves `frontend`/`backend` via this compose
+  # network, so do NOT also run cloudflared on the host with the same token — two
+  # connectors on one tunnel conflict and cause origin errors (Cloudflare 1016).
+  # Port 4040 exposes the connector's local metrics endpoint.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
     ports:
       - "4040:4040"

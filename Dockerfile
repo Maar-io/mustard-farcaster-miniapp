@@ -23,8 +23,9 @@ RUN rm -rf /usr/share/nginx/html/*
 
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY public-host.sh /docker-entrypoint.d/40-public-host.sh
 COPY banner.sh /docker-entrypoint.d/99-mustard-banner.sh
-RUN chmod +x /docker-entrypoint.d/99-mustard-banner.sh
+RUN chmod +x /docker-entrypoint.d/40-public-host.sh /docker-entrypoint.d/99-mustard-banner.sh
 
 EXPOSE 5174
 
