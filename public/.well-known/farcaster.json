@@ -1,16 +1,26 @@
 {
-  "miniapp": {
+  "frame": {
     "version": "1",
     "name": "Mustard",
     "description": "Demo minting with backend notifications",
-    "iconUrl": "__PUBLIC_HOST__/icon.svg",
+    "iconUrl": "__PUBLIC_HOST__/icon.webp",
     "homeUrl": "__PUBLIC_HOST__/",
-    "imageUrl": "__PUBLIC_HOST__/preview.svg",
+    "imageUrl": "__PUBLIC_HOST__/preview.webp",
     "buttonTitle": "Launch Mustard",
-    "splashImageUrl": "__PUBLIC_HOST__/preview.svg",
+    "splashImageUrl": "__PUBLIC_HOST__/preview.webp",
     "splashBackgroundColor": "#fbbf24",
     "webhookUrl": "__PUBLIC_HOST__/webhook",
     "primaryCategory": "entertainment",
     "tags": ["nft", "minting", "notifications", "demo", "backend"]
+  },
+    "startale": {
+    "manifestVersion": "2.3",
+    "featuredBannerImageUrl": "__PUBLIC_HOST__/preview.webp",
+    "projectWebsite": "__PUBLIC_HOST__/",
+    "socialLinks": {
+      "twitter": "https://x.com/StartaleGroup",
+      "discord": "https://discord.gg/abc123"
+    },
+    "screenCompatibility": { "desktop": false, "landscapeOnly": false }
   }
 }
